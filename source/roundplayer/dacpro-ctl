@@ -1,0 +1,568 @@
+#!/usr/bin/env python3
+"""dacpro-ctl - tune the Raspberry Pi DAC Pro (PCM5242) through the kernel pcm512x driver, plus the PipeWire path feeding it.
+
+  dacpro-ctl show                 current values of every option (saved + live ALSA readback)
+  dacpro-ctl verify               JSON: do the DAC's live registers match the saved settings?
+  dacpro-ctl list                 every option, allowed values, what it does
+  sudo dacpro-ctl set OPT VALUE   apply now + save (survives reboot)
+  sudo dacpro-ctl reset           back to defaults
+  sudo dacpro-ctl apply           re-apply saved settings (run at boot by dacpro.service)
+
+On the Pi the DAC has a real driver (dtoverlay=rpi-dacpro -> snd_rpi_hifiberry_dacplus / pcm512x), so every
+register the old Ventuno build poked over I2C is exposed as an ALSA mixer control. This tool just drives
+`amixer`. Settings are stored in /etc/dacpro.json. PipeWire options are written as user config for the
+desktop user and need a PipeWire restart (the tool does it for you unless --no-restart is given).
+"""
+import json, os, pwd, re, subprocess, sys
+
+STATE = "/etc/dacpro.json"
+USER = os.environ.get("DACPRO_USER", "bouncer")
+CARD_HINTS = ("hifiberry", "dacpro", "DAC Pro", "RPi DAC", "DAC", "sndrpi", "pcm512")  # substrings of `aplay -l` card names we accept
+
+# --- ALSA control names from sound/soc/codecs/pcm512x.c ---
+C_DIGITAL = "Digital Playback Volume"      # 0..255, 0.5 dB steps, 207 = 0 dB, 255 = +24 dB
+C_MUTE = "Digital Playback Switch"         # on = unmuted
+C_ANALOG = "Analogue Playback Volume"      # 0 = -6 dB, 1 = 0 dB
+C_BOOST = "Analogue Playback Boost Volume" # 0 = off, 1 = +0.8 dB
+C_DSP = "DSP Program"
+C_DEEMPH = "Deemphasis Switch"
+C_AM_L, C_AM_R = "Auto Mute Time Left", "Auto Mute Time Right"
+C_AM_SW = "Auto Mute Switch"
+C_RAMP = {"down_rate": "Volume Ramp Down Rate", "down_step": "Volume Ramp Down Step",
+          "up_rate": "Volume Ramp Up Rate", "up_step": "Volume Ramp Up Step"}
+
+FILTERS = {  # option value -> DSP Program enum text
+    "fir": "FIR interpolation with de-emphasis",
+    "iir": "Low latency IIR with de-emphasis",
+    "high-atten": "High attenuation with de-emphasis",
+    "fixed": "Fixed process flow",
+    "ringless": "Ringing-less low latency FIR",
+}
+AUTOMUTE_T = ["21ms", "106ms", "213ms", "533ms", "1.07s", "2.13s", "5.33s", "10.66s"]
+RAMP_RATE = ["1", "2", "4", "instant"]
+RAMP_RATE_TXT = {"1": "1 sample/update", "2": "2 samples/update", "4": "4 samples/update", "instant": "Immediate"}
+RAMP_STEP = ["4dB", "2dB", "1dB", "0.5dB"]
+RAMP_STEP_TXT = {"4dB": "4dB/step", "2dB": "2dB/step", "1dB": "1dB/step", "0.5dB": "0.5dB/step"}
+DITHER = ["none", "rectangular", "triangular", "triangular-hf", "wannamaker3", "lipshitz5"]
+CHANNELS = ["stereo", "swap", "mono-left", "mono-right", "left-only", "right-only"]
+ALLOWED_RATES = "44100,48000,88200,96000,176400,192000"
+
+DEFAULTS = {
+    "volume": 0.0, "balance": 0.0, "mute": "off", "filter": "fir", "deemphasis": "off",
+    "analog-gain": "0", "boost": "off", "channels": "stereo", "ramp": "1/1dB",
+    "auto-mute": "off",
+    "pw-resample-quality": 10, "pw-dither": "none", "pw-keep-awake": "off", "pw-hires": "on",
+    # EQ stage (PipeWire filter-chain in front of the DAC). Off = bit-perfect direct path.
+    "eq": {"enabled": False, "preset": "flat", "bass": 0.0, "treble": 0.0,
+           "bands": [0.0, 0.0, 0.0, 0.0, 0.0], "loudness": False, "limiter": False, "crossfeed": "off"},
+}
+EQ_BANDS_HZ = [60, 250, 1000, 4000, 12000]
+EQ_PRESETS = {
+    "flat":    {"bass": 0.0, "treble": 0.0, "bands": [0, 0, 0, 0, 0], "loudness": False},
+    "warm":    {"bass": 2.5, "treble": -1.5, "bands": [1.5, 1.0, 0, -0.5, -1.5], "loudness": False},
+    "bright":  {"bass": -1.0, "treble": 2.5, "bands": [-1.0, 0, 0.5, 1.5, 2.0], "loudness": False},
+    "bass":    {"bass": 5.0, "treble": 0.0, "bands": [4.0, 2.0, 0, 0, 0], "loudness": False},
+    "vocal":   {"bass": -1.5, "treble": 1.0, "bands": [-1.5, 0, 2.0, 2.5, 0.5], "loudness": False},
+    "night":   {"bass": 3.0, "treble": 1.0, "bands": [2.0, 1.0, 0, 0.5, 1.0], "loudness": True},
+}
+
+OPTIONS = [
+    ("volume", "-103.5 .. +24 (dB, 0.5 steps)",
+     "DAC digital volume. Applied inside the DAC at 24+ bits, so it keeps resolution better than turning PipeWire down. "
+     "Keep <= 0 dB to avoid clipping hot masters."),
+    ("balance", "-12 .. +12 (dB)", "Negative = quieter right, positive = quieter left (applied on top of volume)."),
+    ("mute", "on | off", "DAC soft mute, ramps using the 'ramp' setting."),
+    ("filter", "fir | iir | high-atten | fixed | ringless",
+     "Interpolation filter (DSP Program). fir = TI default, sharp roll-off. ringless = low-latency, no pre-ringing "
+     "(the 'apodising' choice many prefer). iir = lowest latency. high-atten = steepest stop-band. fixed = fixed process flow."),
+    ("deemphasis", "on | off", "44.1 kHz CD de-emphasis. Only for pre-emphasised CDs; leave off."),
+    ("analog-gain", "0 | -6", "Line-out level: 0 = 2 Vrms, -6 = 1 Vrms. Use -6 if a powered speaker/amp input distorts "
+     "or is too hot; it lowers the noise floor at the same time."),
+    ("boost", "on | off", "+0.8 dB analogue boost. Only for driving a long/low-impedance line."),
+    ("channels", " | ".join(CHANNELS),
+     "Channel routing. Done in PipeWire on the Pi (channelmix) because the pcm512x driver does not expose the DAC crossbar."),
+    ("ramp", "RATE/STEP, RATE=1|2|4|instant, STEP=4dB|2dB|1dB|0.5dB",
+     "How smoothly volume/mute changes ramp. 1/0.5dB = smoothest, instant = clicks."),
+    ("auto-mute", "off | " + " | ".join(AUTOMUTE_T),
+     "Mute the outputs after this long of digital silence. Hides hiss between tracks but can clip the start of "
+     "quiet passages; default off."),
+    ("pw-resample-quality", "0 .. 14 (PipeWire default 4)",
+     "Resampler quality when PipeWire has to resample (two streams at different rates mixing, or pw-hires off). "
+     "10 = transparent, 14 = max (more CPU)."),
+    ("pw-dither", " | ".join(DITHER),
+     "Dither applied when PipeWire's float output is quantised. The Pi path is 32-bit so this rarely matters; "
+     "triangular-hf or lipshitz5 if you want it anyway."),
+    ("pw-hires", "on | off",
+     "On = the sink follows the stream's native rate (44.1/48/88.2/96/176.4/192 kHz) at S32LE, so PipeWire only "
+     "resamples when two streams with different rates mix. Off = fixed 48 kHz."),
+    ("pw-keep-awake", "on | off",
+     "Stop PipeWire suspending the sink when idle. On = no pop/click and no PLL re-lock at the start of every sound, "
+     "at the cost of the I2S clocks running all the time."),
+]
+
+
+# ------------------------------------------------------------- ALSA ---
+def find_card():
+    """Return the ALSA card index of the DAC Pro (hifiberry-dacplus driver)."""
+    env = os.environ.get("DACPRO_CARD")
+    if env:
+        return env
+    try:
+        out = subprocess.run(["aplay", "-l"], capture_output=True, text=True, check=True).stdout
+    except Exception:
+        return None
+    for line in out.splitlines():
+        m = re.match(r"card (\d+): (\S+) \[([^\]]*)\]", line)
+        if m and any(h.lower() in (m.group(2) + m.group(3)).lower() for h in CARD_HINTS):
+            return m.group(1)
+    return None
+
+
+CARD = find_card()
+
+
+def require_card():
+    if CARD is None:
+        print("DAC Pro not detected (no hifiberry card in `aplay -l`) - check dtoverlay=rpi-dacpro and the HAT seating.")
+        sys.exit(0)
+
+
+def amixer(*args, check=True):
+    return subprocess.run(["amixer", "-c", str(CARD), *args], capture_output=True, text=True, check=check).stdout
+
+
+def cset(name, value):
+    amixer("cset", f"name={name}", str(value))
+
+
+def cget(name):
+    """Return the parsed value(s) of a control: list of ints, or enum text."""
+    out = amixer("cget", f"name={name}", check=False)
+    m = re.search(r": values=(.+)", out)
+    if not m:
+        return None
+    vals = m.group(1).strip()
+    if "type=ENUMERATED" in out:
+        idx = int(vals.split(",")[0])
+        items = dict(re.findall(r"; Item #(\d+) '([^']*)'", out))
+        return items.get(str(idx), vals)
+    return [int(v) if v.lstrip("-").isdigit() else v for v in vals.split(",")]
+
+
+def has_control(name):
+    return bool(re.search(r": values=", amixer("cget", f"name={name}", check=False)))
+
+
+def db_to_reg(db):
+    db = max(-103.5, min(0.0, float(db)))   # RPi DAC Pro driver exposes 0..207 (207 = 0 dB); no positive gain
+    return int(round((db + 103.5) * 2))
+
+
+def reg_to_db(r):
+    return f"{(r / 2.0) - 103.5:+.1f} dB"
+
+
+# ------------------------------------------------------------- state ---
+def load():
+    s = dict(DEFAULTS)
+    try:
+        s.update(json.load(open(STATE)))
+    except Exception:
+        pass
+    return s
+
+
+def save(s):
+    with open(STATE, "w") as f:
+        json.dump(s, f, indent=2)
+
+
+# --------------------------------------------------------------- DAC ---
+def apply_dac(s):
+    require_card()
+    vol, bal = float(s["volume"]), float(s["balance"])
+    l = vol - max(0.0, bal)
+    r = vol - max(0.0, -bal)
+    cset(C_DIGITAL, f"{db_to_reg(l)},{db_to_reg(r)}")
+    cset(C_MUTE, "off" if s["mute"] == "on" else "on")          # ALSA switch: on = audible
+    cset(C_DSP, FILTERS[s["filter"]])
+    cset(C_DEEMPH, "on" if s["deemphasis"] == "on" else "off")
+    cset(C_ANALOG, "1,1" if s["analog-gain"] == "0" else "0,0")  # 1 = 0 dB, 0 = -6 dB
+    if has_control(C_BOOST):
+        cset(C_BOOST, "1,1" if s["boost"] == "on" else "0,0")
+    rate, step = s["ramp"].split("/")
+    for key, name in C_RAMP.items():
+        if has_control(name):
+            cset(name, RAMP_RATE_TXT[rate] if key.endswith("rate") else RAMP_STEP_TXT[step])
+    if s["auto-mute"] == "off":
+        cset(C_AM_SW, "off,off")
+    else:
+        cset(C_AM_L, s["auto-mute"])
+        cset(C_AM_R, s["auto-mute"])
+        cset(C_AM_SW, "on,on")
+    # Keep ALSA's saved card state in step, so alsa-restore at the next boot restores exactly this
+    subprocess.run(["alsactl", "store"], capture_output=True, timeout=5)
+
+
+def wait_for_card(timeout=30.0):
+    """The DAC overlay can register its card a few seconds into boot; apply must not run before it exists."""
+    import time
+    global CARD
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        CARD = find_card()
+        if CARD is not None:
+            return True
+        time.sleep(0.5)
+    return False
+
+
+# ---------------------------------------------------------- PipeWire ---
+def user_home():
+    return pwd.getpwnam(USER).pw_dir
+
+
+def write_user(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    open(path, "w").write(text)
+    pw = pwd.getpwnam(USER)
+    d = path
+    while d.startswith(user_home() + "/.config"):
+        os.chown(d, pw.pw_uid, pw.pw_gid)
+        d = os.path.dirname(d)
+
+
+def remove_user(path):
+    if os.path.exists(path):
+        os.remove(path)
+
+
+def channel_props(mode):
+    """Return wireplumber apply_properties lines for the channel routing option."""
+    if mode == "stereo":
+        return []
+    mono = {"mono-left": ("1 0", "1 0"), "mono-right": ("0 1", "0 1"),
+            "left-only": ("1 0", "0 0"), "right-only": ("0 0", "0 1"), "swap": ("0 1", "1 0")}[mode]
+    # 2x2 upmix matrix: rows = output L/R, cols = input L/R
+    return [f'["channelmix.matrix"] = "[[{mono[0].replace(" ", ", ")}], [{mono[1].replace(" ", ", ")}]]"',
+            '["channelmix.disable"] = false']
+
+
+def wireplumber_is_05():
+    try:
+        out = subprocess.run(["wireplumber", "--version"], capture_output=True, text=True).stdout
+        m = re.search(r"(\d+)\.(\d+)", out)
+        return bool(m) and (int(m.group(1)), int(m.group(2))) >= (0, 5)
+    except Exception:
+        return False
+
+
+def dac_sink_name():
+    """PipeWire node name of the DAC sink (read live as the desktop user; falls back to the Pi 4 default)."""
+    try:
+        uid = pwd.getpwnam(USER).pw_uid
+        out = subprocess.run(["sudo", "-u", USER, f"XDG_RUNTIME_DIR=/run/user/{uid}", "pw-dump"],
+                             capture_output=True, text=True, timeout=5).stdout
+        for o in json.loads(out):
+            props = (o.get("info") or {}).get("props") or {}
+            if props.get("media.class") == "Audio/Sink" and str(props.get("node.name", "")).startswith("alsa_output") \
+                    and re.search(r"hifiberry|DAC Pro|RPi DAC|pcm512", str(props.get("alsa.card_name", "")), re.I):
+                return props["node.name"]
+    except Exception:
+        pass
+    return "alsa_output.platform-soc_sound.stereo-fallback"
+
+
+CROSSFEED = {  # level -> (cross gain, lowpass Hz): Meier/bs2b-like presets for headphones on the line out
+    "light": (0.30, 650.0),
+    "medium": (0.42, 700.0),
+    "strong": (0.55, 750.0),
+}
+
+
+def eq_conf(eq):
+    """PipeWire filter-chain as an explicit stereo graph: per channel low shelf (bass) -> 5 peaking bands -> high
+    shelf (treble) [-> loudness], then an optional headphone crossfeed (each side gets a low-passed, attenuated copy of
+    the other, mixed back with the direct signal). Exposed as the 'RoundPlayer EQ' sink that WirePlumber makes the
+    default while enabled. Volume still happens in the DAC."""
+    nodes, links = [], []
+
+    def add(name, ty, ctl=""):
+        body = f" control = {{ {ctl} }}" if ctl else ""
+        nodes.append(f'        {{ type = builtin name = {name} label = {ty}{body} }}')
+
+    last = {}
+    for ch in ("l", "r"):
+        add(f"bass_{ch}", "bq_lowshelf", f"Freq = 120.0 Q = 0.7 Gain = {float(eq.get('bass', 0)):.1f}")
+        for i, hz in enumerate(EQ_BANDS_HZ):
+            g = float((eq.get("bands") or [0] * 5)[i])
+            add(f"b{i}_{ch}", "bq_peaking", f"Freq = {hz}.0 Q = 1.1 Gain = {g:.1f}")
+        add(f"treble_{ch}", "bq_highshelf", f"Freq = 8000.0 Q = 0.7 Gain = {float(eq.get('treble', 0)):.1f}")
+        chain = [f"bass_{ch}"] + [f"b{i}_{ch}" for i in range(len(EQ_BANDS_HZ))] + [f"treble_{ch}"]
+        if eq.get("loudness"):
+            # "night" loudness contour without a compressor (PipeWire has no builtin one): lift the extremes, trim 2 dB
+            add(f"loud_lo_{ch}", "bq_lowshelf", "Freq = 80.0 Q = 0.7 Gain = 3.0")
+            add(f"loud_hi_{ch}", "bq_highshelf", "Freq = 10000.0 Q = 0.7 Gain = 2.0")
+            add(f"trim_{ch}", "linear", "Mult = 0.79 Add = 0.0")
+            chain += [f"loud_lo_{ch}", f"loud_hi_{ch}", f"trim_{ch}"]
+        for a, b in zip(chain, chain[1:]):
+            links.append(f'        {{ output = "{a}:Out" input = "{b}:In" }}')
+        last[ch] = chain[-1]
+    inputs = ['"bass_l:In"', '"bass_r:In"']
+    outputs = [f'"{last["l"]}:Out"', f'"{last["r"]}:Out"']
+    xf = CROSSFEED.get(str(eq.get("crossfeed") or "off"))
+    if xf:
+        g, hz = xf
+        direct, cross = 1.0 / (1.0 + g), g / (1.0 + g)   # keep the sum below 0 dBFS
+        for ch, other in (("l", "r"), ("r", "l")):
+            add(f"xlp_{ch}", "bq_lowpass", f"Freq = {hz:.1f} Q = 0.5")
+            add(f"xmix_{ch}", "mixer", f'"Gain 1" = {direct:.4f} "Gain 2" = {cross:.4f}')
+            links.append(f'        {{ output = "{last[other]}:Out" input = "xlp_{ch}:In" }}')
+            links.append(f'        {{ output = "{last[ch]}:Out" input = "xmix_{ch}:In 1" }}')
+            links.append(f'        {{ output = "xlp_{ch}:Out" input = "xmix_{ch}:In 2" }}')
+        outputs = ['"xmix_l:Out"', '"xmix_r:Out"']
+    lines = [
+        "# generated by dacpro-ctl - EQ / crossfeed stage",
+        "context.modules = [",
+        "  {",
+        "    name = libpipewire-module-filter-chain",
+        "    args = {",
+        '      node.description = "RoundPlayer EQ"',
+        '      media.name = "RoundPlayer EQ"',
+        "      filter.graph = {",
+        "        nodes = [",
+        *nodes,
+        "        ]",
+        "        links = [",
+        *links,
+        "        ]",
+        f"        inputs = [ {' '.join(inputs)} ]",
+        f"        outputs = [ {' '.join(outputs)} ]",
+        "      }",
+        "      audio.channels = 2",
+        "      audio.position = [ FL FR ]",
+        '      capture.props = { node.name = "roundplayer_eq" media.class = Audio/Sink priority.session = 2000 }',
+        f'      playback.props = {{ node.name = "roundplayer_eq_out" node.passive = true target.object = "{dac_sink_name()}" }}',
+        "    }",
+        "  }",
+        "]",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def apply_eq_files(s):
+    """Write/remove the filter-chain config. The daemon restarts PipeWire via apply_pw(restart=True)."""
+    h = user_home()
+    eq = s.get("eq") or {}
+    path = f"{h}/.config/pipewire/pipewire.conf.d/95-roundplayer-eq.conf"
+    default_conf = f"{h}/.config/wireplumber/wireplumber.conf.d/95-roundplayer-eq-default.conf"
+    if eq.get("enabled") or str(eq.get("crossfeed") or "off") in CROSSFEED:
+        write_user(path, eq_conf(eq))
+        # make the EQ sink the default so every stream (mpv, casts, remote) goes through it
+        write_user(default_conf, '\n'.join(['# generated by dacpro-ctl', 'wireplumber.settings = {', '  default.configured.audio.sink = "roundplayer_eq"', '}']) + '\n')
+    else:
+        remove_user(path)
+        remove_user(default_conf)
+
+
+def apply_pw(s, restart=True):
+    h = user_home()
+    apply_eq_files(s)
+    q = int(s["pw-resample-quality"])
+    props = [f'["resample.quality"] = {q}', f'["dither.method"] = "{s["pw-dither"]}"']
+    if s["pw-keep-awake"] == "on":
+        props.append('["session.suspend-timeout-seconds"] = 0')
+    rates_conf = f"{h}/.config/pipewire/pipewire.conf.d/50-dacpro-rates.conf"
+    if s.get("pw-hires", "on") == "on":
+        props.append('["audio.format"] = "S32LE"')
+        props.append(f'["audio.allowed-rates"] = "{ALLOWED_RATES}"')
+        write_user(rates_conf, "# generated by dacpro-ctl\ncontext.properties = {\n"
+                   "    default.clock.rate = 48000\n"
+                   f"    default.clock.allowed-rates = [ {ALLOWED_RATES.replace(',', ' ')} ]\n}}\n")
+    else:
+        remove_user(rates_conf)
+    props += channel_props(s.get("channels", "stereo"))
+    # PipeWire does its own (software) volume and leaves the DAC's mixer registers to this tool. Without this,
+    # WirePlumber restores its remembered route volume into "Digital Playback Volume" at every session start.
+    props.append('["api.alsa.soft-mixer"] = true')
+    # Match the DAC Pro sink whatever PipeWire names it (platform-soc_sound / platform-soc_107c000000_sound ...)
+    lua_path = f"{h}/.config/wireplumber/main.lua.d/51-dacpro.lua"
+    conf_path = f"{h}/.config/wireplumber/wireplumber.conf.d/51-dacpro.conf"
+    if wireplumber_is_05():
+        remove_user(lua_path)
+        write_user(conf_path,
+                   "# generated by dacpro-ctl\nmonitor.alsa.rules = [\n  {\n"
+                   '    matches = [ { node.name = "~alsa_output.*" alsa.card_name = "~.*(hifiberry|DAC Pro|RPi DAC|pcm512).*" } ]\n'
+                   "    actions = { update-props = {\n      "
+                   + "\n      ".join(p.replace('["', '').replace('"] = ', ' = ') for p in props)
+                   + "\n    } }\n  }\n]\n")
+    else:
+        remove_user(conf_path)
+        write_user(lua_path,
+                   "-- generated by dacpro-ctl\n"
+                   "table.insert(alsa_monitor.rules, {\n"
+                   '  matches = { { { "node.name", "matches", "alsa_output.*" }, { "alsa.card_name", "matches", "*DAC*" } } },\n'
+                   "  apply_properties = {\n    " + ",\n    ".join(props) + ",\n  },\n})\n")
+    stream = f"# generated by dacpro-ctl\nstream.properties = {{\n    resample.quality = {q}\n}}\n"
+    write_user(f"{h}/.config/pipewire/client.conf.d/50-dacpro.conf", stream)
+    write_user(f"{h}/.config/pipewire/pipewire-pulse.conf.d/50-dacpro.conf", stream)
+    if restart:
+        uid = pwd.getpwnam(USER).pw_uid
+        subprocess.run(["sudo", "-u", USER, f"XDG_RUNTIME_DIR=/run/user/{uid}", "systemctl", "--user",
+                        "restart", "wireplumber", "pipewire", "pipewire-pulse"], check=False)
+
+
+# -------------------------------------------------------------- verbs ---
+def validate(opt, val):
+    if opt == "volume":
+        v = float(val); assert -103.5 <= v <= 24; return v
+    if opt == "balance":
+        v = float(val); assert -12 <= v <= 12; return v
+    if opt in ("mute", "deemphasis", "boost", "pw-keep-awake", "pw-hires"):
+        assert val in ("on", "off"); return val
+    if opt == "filter":
+        assert val in FILTERS; return val
+    if opt == "analog-gain":
+        assert val in ("0", "-6"); return val
+    if opt == "channels":
+        assert val in CHANNELS; return val
+    if opt == "ramp":
+        r, s = val.split("/"); assert r in RAMP_RATE and s in RAMP_STEP; return val
+    if opt == "auto-mute":
+        assert val == "off" or val in AUTOMUTE_T; return val
+    if opt == "pw-resample-quality":
+        v = int(val); assert 0 <= v <= 14; return v
+    if opt == "pw-dither":
+        assert val in DITHER; return val
+    raise KeyError(opt)
+
+
+def show():
+    s = load()
+    if CARD is None:
+        print(f"Saved settings ({STATE}):")
+        for k in DEFAULTS:
+            print(f"  {k:22} {s[k]}")
+        print("Live DAC readback:\n  card                   not detected")
+        return
+    vol = cget(C_DIGITAL) or [0, 0]
+    dsp = cget(C_DSP)
+    inv = {v: k for k, v in FILTERS.items()}
+    mute = cget(C_MUTE) or ["?", "?"]
+    live = {
+        "card": f"hw:{CARD}",
+        "volume L/R": f"{reg_to_db(vol[0])} / {reg_to_db(vol[1])}",
+        "filter": inv.get(dsp, dsp),
+        "mute": "off" if mute[0] in ("on", 1) else "on",
+        "analog-gain": "0 dB" if (cget(C_ANALOG) or [1])[0] in (1, "on") else "-6 dB",
+        "channels": s.get("channels", "stereo") + " (PipeWire channelmix)",
+    }
+    print(f"Saved settings ({STATE}):")
+    for k in DEFAULTS:
+        mark = "" if s[k] == DEFAULTS[k] else "   (changed)"
+        print(f"  {k:22} {s[k]}{mark}")
+    print("Live DAC readback:")
+    for k, v in live.items():
+        print(f"  {k:22} {v}")
+
+
+def verify():
+    """Compare the DAC's live registers with the saved settings. JSON: {"ok", "issues", "live"}. Used by the daemon's
+    boot sound-check: if anything disagrees it re-applies and tells the UI."""
+    s = load()
+    if CARD is None:
+        return {"ok": False, "issues": ["DAC Pro card not detected"], "live": {}}
+    issues = []
+    live = {}
+    vol, bal = float(s["volume"]), float(s["balance"])
+    want = (db_to_reg(vol - max(0.0, bal)), db_to_reg(vol - max(0.0, -bal)))
+    got = cget(C_DIGITAL) or []
+    live["digital"] = got
+    if len(got) < 2 or (int(got[0]), int(got[1])) != want:
+        issues.append(f"digital volume {got} != {list(want)}")
+    mute = cget(C_MUTE) or []
+    live["mute_switch"] = mute
+    want_sw = "off" if s["mute"] == "on" else "on"
+    if not mute or str(mute[0]) not in (want_sw, "1" if want_sw == "on" else "0"):
+        issues.append(f"mute switch {mute} != {want_sw}")
+    dsp = cget(C_DSP)
+    live["dsp"] = dsp
+    if dsp != FILTERS[s["filter"]]:
+        issues.append(f"filter {dsp!r} != {FILTERS[s['filter']]!r}")
+    de = cget(C_DEEMPH)
+    live["deemphasis"] = de
+    want_de = "on" if s["deemphasis"] == "on" else "off"
+    de0 = de[0] if isinstance(de, list) and de else de
+    if de0 is not None and str(de0) not in (want_de, "1" if want_de == "on" else "0"):
+        issues.append(f"deemphasis {de} != {want_de}")
+    ag = cget(C_ANALOG) or []
+    live["analog"] = ag
+    want_ag = 1 if s["analog-gain"] == "0" else 0
+    if ag and int(ag[0]) != want_ag:
+        issues.append(f"analogue gain {ag} != {want_ag}")
+    if has_control(C_BOOST):
+        bo = cget(C_BOOST) or []
+        live["boost"] = bo
+        want_bo = 1 if s["boost"] == "on" else 0
+        if bo and int(bo[0]) != want_bo:
+            issues.append(f"boost {bo} != {want_bo}")
+    return {"ok": not issues, "issues": issues, "live": live}
+
+
+def main():
+    a = sys.argv[1:]
+    if not a or a[0] in ("-h", "--help", "help"):
+        print(__doc__); return
+    if a[0] == "list":
+        for name, vals, doc in OPTIONS:
+            print(f"{name}\n  values : {vals}\n  default: {DEFAULTS[name]}\n  {doc}\n")
+        return
+    if a[0] == "show":
+        show(); return
+    if a[0] == "verify":
+        print(json.dumps(verify())); return
+    if os.geteuid() != 0:
+        sys.exit("needs sudo")
+    if a[0] == "apply":
+        s = load(); wait_for_card(); apply_dac(s)
+        if "--with-pipewire" in a:
+            apply_pw(s, restart=False)
+        print("applied"); return
+    if a[0] == "reset":
+        restart_pw = "--no-restart" not in a
+        save(dict(DEFAULTS)); apply_dac(DEFAULTS); apply_pw(DEFAULTS, restart=restart_pw); print("reset to defaults"); return
+    if a[0] == "set" and len(a) >= 3 and a[1] in ("eq-json", "eq-preset", "eq-enabled"):
+        s = load(); eq = dict(DEFAULTS["eq"]); eq.update(s.get("eq") or {})
+        if a[1] == "eq-json":
+            new = json.loads(a[2]); eq.update({k: v for k, v in new.items() if k in eq})
+        elif a[1] == "eq-preset":
+            if a[2] not in EQ_PRESETS: sys.exit("unknown preset")
+            eq.update(EQ_PRESETS[a[2]]); eq["preset"] = a[2]; eq["enabled"] = a[2] != "flat"
+        else:
+            eq["enabled"] = a[2] == "on"
+        eq["bass"] = max(-12.0, min(12.0, float(eq["bass"]))); eq["treble"] = max(-12.0, min(12.0, float(eq["treble"])))
+        eq["bands"] = [max(-12.0, min(12.0, float(x))) for x in (eq.get("bands") or [0] * 5)][:5]
+        if str(eq.get("crossfeed") or "off") not in ("off", *CROSSFEED):
+            eq["crossfeed"] = "off"
+        s["eq"] = eq; save(s)
+        apply_pw(s, restart="--no-restart" not in a)
+        print(json.dumps(eq)); return
+    if a[0] == "set" and len(a) >= 3:
+        opt, val = a[1], a[2]
+        restart_pw = "--no-restart" not in a
+        try:
+            v = validate(opt, val)
+        except (KeyError, AssertionError, ValueError):
+            sys.exit(f"bad option/value: {opt} {val}  (see: dacpro-ctl list)")
+        s = load(); s[opt] = v; save(s)
+        if opt.startswith("pw-") or opt == "channels":
+            apply_pw(s, restart=restart_pw)
+            print(f"{opt} = {v}" + ("  (PipeWire restarted)" if restart_pw else "  (saved, restart pending)"))
+        else:
+            apply_dac(s); print(f"{opt} = {v}")
+        return
+    print(__doc__)
+
+
+if __name__ == "__main__":
+    main()

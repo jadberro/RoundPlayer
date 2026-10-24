@@ -1,0 +1,2 @@
+{ "name": "Round Player", "short_name": "Player", "start_url": "/", "display": "standalone", "background_color": "#07090f", "theme_color": "#07090f",
+  "icons": [{ "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI1MCIgZmlsbD0iIzA3MDkwZiIvPjxjaXJjbGUgY3g9IjUwIiBjeT0iNTAiIHI9IjMwIiBmaWxsPSJub25lIiBzdHJva2U9IiMwMGU1ZmYiIHN0cm9rZS13aWR0aD0iNiIvPjxjaXJjbGUgY3g9IjUwIiBjeT0iNTAiIHI9IjYiIGZpbGw9IiMwMGU1ZmYiLz48L3N2Zz4=", "sizes": "any", "type": "image/svg+xml" }] }

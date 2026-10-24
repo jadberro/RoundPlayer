@@ -1,0 +1,85 @@
+# For more options and information see
+# http://rptl.io/configtxt
+# Some settings may impact device functionality. See link above for details
+
+# Uncomment some or all of these to enable the optional hardware interfaces
+#dtparam=i2c_arm=on
+#dtparam=i2s=on
+#dtparam=spi=on
+
+# Enable audio (loads snd_bcm2835)
+#dtparam=audio=on  # roundplayer: DAC Pro only
+
+# Additional overlays and parameters are documented
+# /boot/firmware/overlays/README
+
+# Automatically load overlays for detected cameras
+camera_auto_detect=1
+
+# Automatically load overlays for detected DSI displays
+display_auto_detect=1
+
+# Automatically load initramfs files, if found
+auto_initramfs=1
+
+# Enable DRM VC4 V3D driver
+#dtoverlay=vc4-kms-v3d  # roundplayer: see fragment below
+max_framebuffers=2
+
+# Don't have the firmware create an initial video= setting in cmdline.txt.
+# Use the kernel's default instead.
+disable_fw_kms_setup=1
+
+# Run in 64-bit mode
+arm_64bit=1
+
+# Disable compensation for displays with overscan
+disable_overscan=1
+
+# Run as fast as firmware / board allows
+arm_boost=1
+
+[cm4]
+# Enable host mode on the 2711 built-in XHCI USB controller.
+# This line should be removed if the legacy DWC2 controller is required
+# (e.g. for USB device mode) or if USB support is not required.
+otg_mode=1
+
+[cm5]
+dtoverlay=dwc2,dr_mode=host
+
+[pi5]
+dtoverlay=nospi10
+
+[all]
+disable_splash=1
+
+# ---------------------------------------------------------------------------
+# Round Media Player - Raspberry Pi 4 boot config fragment
+# Installed by install_pi.sh as /boot/firmware/config.txt (appended, idempotent).
+# ---------------------------------------------------------------------------
+
+# --- Audio: Raspberry Pi DAC Pro (PCM5242) is the only sound card ----------
+# Kill the on-board headphone PWM DAC and HDMI audio so PipeWire only sees the DAC Pro.
+dtparam=audio=off
+dtoverlay=vc4-kms-v3d,noaudio
+dtoverlay=rpi-dacpro
+
+# --- Display: 5" round 1080x1080 HDMI LCD (Waveshare sku 24369) -----------
+# Under KMS the panel's EDID normally advertises 1080x1080@60 and nothing else is needed.
+# If the Pi comes up at the wrong mode, force it from the kernel command line instead of
+# legacy hdmi_* keys (those are ignored by vc4-kms-v3d):
+#   sudo sed -i 's/$/ video=HDMI-A-1:1080x1080M@60D/' /boot/firmware/cmdline.txt
+# Keep the HDMI link powered even if the panel is slow to answer EDID.
+hdmi_force_hotplug=1
+max_framebuffers=2
+disable_overscan=1
+
+# --- GPU / decode ----------------------------------------------------------
+# 1080p H.264 is decoded by the V4L2 stateful decoder (bcm2835-codec); mpv uses hwdec=v4l2m2m-copy.
+gpu_mem=256
+arm_boost=1
+
+# --- Misc ------------------------------------------------------------------
+# USB touch panel (HID) needs nothing; uncomment to rotate the touch/display 180 deg if mounted upside down:
+# display_hdmi_rotate=2

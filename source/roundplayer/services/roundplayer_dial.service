@@ -1,0 +1,16 @@
+[Unit]
+Description=Round Media Player - YouTube Cast Receiver (yt-cast-receiver)
+After=network-online.target roundplayer_daemon.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__HOME__/roundplayer/yt_receiver
+ExecStart=/usr/bin/node __HOME__/roundplayer/yt_receiver/index.mjs
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

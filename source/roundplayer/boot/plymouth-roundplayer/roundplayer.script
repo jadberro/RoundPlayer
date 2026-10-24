@@ -1,0 +1,60 @@
+// Round Player boot splash: black, the wordmark fading in, and a gold dot orbiting the ring
+// (the same ring the player's round panel is). No text, no logo, no progress bar.
+Window.SetBackgroundTopColor(0, 0, 0);
+Window.SetBackgroundBottomColor(0, 0, 0);
+
+screen_width = Window.GetWidth();
+screen_height = Window.GetHeight();
+
+splash = Image("splash.png");
+side = screen_height;
+if (screen_width < side) side = screen_width;
+if (side != splash.GetWidth()) splash = splash.Scale(side, side);
+ox = (screen_width - side) / 2;
+oy = (screen_height - side) / 2;
+scale = side / 1080;
+
+splash_sprite = Sprite(splash);
+splash_sprite.SetPosition(ox, oy, 0);
+splash_sprite.SetOpacity(0);
+
+dot = Image("dot.png");
+dot_sprite = Sprite(dot);
+trail0 = Sprite(Image("trail0.png"));
+trail1 = Sprite(Image("trail1.png"));
+trail2 = Sprite(Image("trail2.png"));
+
+cx = ox + side / 2;
+cy = oy + side / 2;
+radius = 500 * scale;
+half = 14;
+
+fun place(sprite, angle, z) {
+    sprite.SetPosition(cx + radius * Math.Sin(angle) - half, cy - radius * Math.Cos(angle) - half, z);
+}
+
+t = 0;
+fun refresh() {
+    t++;
+    // wordmark: fade in over the first second
+    op = t / 50;
+    if (op > 1) op = 1;
+    splash_sprite.SetOpacity(op);
+    // one orbit every ~4 s (refresh runs at 50 Hz)
+    a = (t / 200) * 2 * Math.Pi;
+    place(dot_sprite, a, 10);
+    place(trail0, a - 0.10, 9);
+    place(trail1, a - 0.20, 8);
+    place(trail2, a - 0.30, 7);
+}
+Plymouth.SetRefreshFunction(refresh);
+
+// Swallow status/message text and the password prompt so nothing is drawn over the splash
+fun message_callback(text) { }
+Plymouth.SetUpdateStatusFunction(message_callback);
+fun display_normal_callback() { }
+Plymouth.SetDisplayNormalFunction(display_normal_callback);
+
+if (Plymouth.GetMode() == "shutdown" || Plymouth.GetMode() == "reboot") {
+    splash_sprite.SetOpacity(1);
+}

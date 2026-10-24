@@ -1,0 +1,319 @@
+<title>Round HUD Directions</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Sora:wght@400;600;700&family=IBM+Plex+Mono:wght@500;600&family=Bebas+Neue&family=Inter+Tight:wght@300;400;600&display=swap">
+<style>
+/* Layout: three 1080 px discs drawn at half size, one per direction, each followed by what it costs on the Pi.
+   Single dark theme by choice - the subject is a black glass disc in a dark room. */
+:root{color-scheme:dark;--bg:#0a0b0f;--fg:#e9edf5;--mute:#8d96a8;--line:rgba(255,255,255,.09);--card:#12141b;--acc:#f2c14e;
+  --display:"Manrope",system-ui,sans-serif;--body:"Inter Tight",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.55 var(--body);padding-block:30px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1180px;margin:0 auto}
+h1{font:800 34px/1.1 var(--display);letter-spacing:-.02em;margin:0 0 8px}
+p.lead{color:var(--mute);margin:0 0 26px;max-width:66ch}
+h2{font:700 22px/1.2 var(--display);margin:40px 0 4px}
+h2 small{font:500 15px var(--mono);color:var(--acc);margin-left:10px;letter-spacing:.08em}
+.dir{display:grid;grid-template-columns:540px 1fr;gap:28px;align-items:start;margin-top:14px}
+@media(max-width:960px){.dir{grid-template-columns:1fr}}
+.notes{max-width:60ch;color:var(--mute)}
+.notes b{color:var(--fg);font-weight:600}
+.notes ul{padding-left:18px;margin:10px 0}
+.notes li{margin:5px 0}
+.cost{font:500 13px var(--mono);color:var(--mute);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:12px;line-height:1.7}
+.cost i{color:#34d399;font-style:normal}.cost em{color:#f87171;font-style:normal}
+.disc-wrap{width:540px;height:540px;position:relative;max-width:100%}
+@media(max-width:600px){.disc-wrap{width:340px;height:340px}.disc{transform:scale(.3148)}}
+.disc{width:1080px;height:1080px;transform:scale(.5);transform-origin:0 0;position:absolute;left:0;top:0;border-radius:50%;overflow:hidden;background:#000;color:#fff;font-family:var(--display)}
+.disc *{box-sizing:border-box}
+.btn{position:absolute;width:112px;height:112px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.btn svg{width:48px;height:48px;fill:#fff}
+.verdict{margin-top:44px;border-top:1px solid var(--line);padding-top:26px;max-width:70ch}
+.verdict p{margin:0 0 12px}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+.pick{font:600 14px var(--mono);border:1px solid var(--line);border-radius:999px;padding:7px 14px;color:var(--fg)}
+.pick.on{border-color:var(--acc);color:var(--acc)}
+
+/* ===== A. Gallery ===== */
+.a .art{position:absolute;inset:0;background:
+  radial-gradient(circle at 30% 30%,#f5d08a 0%,transparent 35%),
+  radial-gradient(circle at 70% 60%,#2f4f9e 0%,transparent 45%),
+  radial-gradient(circle at 50% 85%,#b8482f 0%,transparent 40%),
+  linear-gradient(160deg,#1a2238,#0b0d14)}
+.a .art::after{content:"";position:absolute;inset:0;background:
+  linear-gradient(to bottom,rgba(0,0,0,.25) 0%,rgba(0,0,0,0) 30%,rgba(0,0,0,0) 48%,rgba(0,0,0,.78) 72%,rgba(0,0,0,.96) 100%)}
+.a .ring{position:absolute;left:300px;top:230px;width:480px;height:480px;border-radius:50%;border:14px solid rgba(0,0,0,.55);box-shadow:0 0 0 2px rgba(255,255,255,.18) inset,0 30px 60px rgba(0,0,0,.6);
+  background:repeating-radial-gradient(circle,rgba(0,0,0,.25) 0 4px,rgba(0,0,0,.45) 4px 7px)}
+.a .ring::before{content:"";position:absolute;left:18px;top:18px;right:18px;bottom:18px;border-radius:50%;background:transparent;box-shadow:0 0 0 1px rgba(255,255,255,.08) inset}
+.a .ring::after{content:"";position:absolute;left:198px;top:198px;width:56px;height:56px;border-radius:50%;background:#101216;border:4px solid #f5d08a}
+.a .title{position:absolute;left:0;right:0;bottom:258px;text-align:center;padding:0 200px}
+.a .t{font:800 46px/1.1 var(--display);letter-spacing:-.015em;text-shadow:0 2px 24px rgba(0,0,0,.8)}
+.a .s{font:700 26px/1.25 var(--display);color:#d8dfeb;margin-top:6px}
+.a .meta{position:absolute;left:0;right:0;bottom:214px;display:flex;justify-content:center;gap:10px;font:700 20px var(--mono);letter-spacing:.08em;color:#f5d08a}
+.a .meta span+span{color:#7ee2b0}
+.a .transport{position:absolute;left:0;right:0;bottom:70px;display:flex;justify-content:center;align-items:center;gap:36px}
+.a .transport .btn{position:static;background:rgba(0,0,0,.35)}
+.a .transport .play{width:152px;height:152px;background:#f5d08a}.a .transport .play svg{width:70px;height:70px;fill:#1a1206}
+.a .seek{position:absolute;left:250px;right:250px;bottom:176px;height:6px;border-radius:3px;background:rgba(255,255,255,.25)}
+.a .seek i{display:block;width:38%;height:100%;border-radius:3px;background:#f5d08a}
+.a .btn.side{top:420px;background:rgba(0,0,0,.35)}
+.a .time{position:absolute;left:250px;right:250px;bottom:144px;display:flex;justify-content:space-between;font:600 22px var(--mono);color:#c9d2e3}
+
+/* ===== B. Instrument ===== */
+.b{background:radial-gradient(circle at 50% 48%,#17181d 0%,#0c0d11 60%,#000 100%)}
+.b .rim{position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 200deg,#2a2c33,#8d9099,#1f2126,#6b6e77,#2a2c33,#9a9da6,#2a2c33);
+  -webkit-mask:radial-gradient(circle,transparent 508px,#000 510px);mask:radial-gradient(circle,transparent 508px,#000 510px)}
+.b .rim2{position:absolute;inset:34px;border-radius:50%;box-shadow:0 0 0 2px rgba(255,255,255,.06) inset,0 0 40px rgba(0,0,0,.9) inset}
+.b .vinyl{position:absolute;left:252px;top:238px;width:560px;height:560px;border-radius:50%;background:repeating-radial-gradient(circle,#0e1013 0 3px,#1b1e25 3px 5px);
+  box-shadow:0 40px 90px rgba(0,0,0,.85),0 0 0 1px rgba(255,255,255,.08)}
+.b .vinyl::before{content:"";position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 20deg,transparent 0 30deg,rgba(255,255,255,.14) 50deg,transparent 80deg,transparent 200deg,rgba(255,255,255,.1) 230deg,transparent 260deg)}
+.b .label{position:absolute;left:185px;top:185px;width:190px;height:190px;border-radius:50%;background:radial-gradient(circle,#f3d58c 0,#d9a93c 55%,#8a6418 100%);display:flex;align-items:center;justify-content:center;font:600 14px var(--mono);letter-spacing:.2em;color:#3b2a08;text-align:center;line-height:1.4}
+.b .label::after{content:"";position:absolute;width:14px;height:14px;border-radius:50%;background:#0b0c10}
+.b .arm{position:absolute;left:790px;top:120px;width:24px;height:430px;transform-origin:12px 24px;transform:rotate(-22deg)}
+.b .arm::before{content:"";position:absolute;left:-18px;top:-18px;width:60px;height:60px;border-radius:50%;background:linear-gradient(145deg,#c9ccd3,#5d6168)}
+.b .arm::after{content:"";position:absolute;left:6px;top:30px;width:12px;height:400px;border-radius:6px;background:linear-gradient(90deg,#9a9ea7,#4a4d55)}
+.b .head{position:absolute;left:4px;top:380px;width:30px;height:60px;border-radius:6px;background:#2b2e36;border:1px solid #777}
+.b .title{position:absolute;left:0;right:0;top:112px;text-align:center;padding:0 230px}
+.b .t{font:700 40px/1.15 "Sora",var(--display);letter-spacing:-.01em}
+.b .s{font:400 24px var(--body);color:#aeb6c6;margin-top:4px}
+.b .engr{position:absolute;font:600 16px var(--mono);letter-spacing:.3em;color:#7d8494}
+.b .vu{position:absolute;top:360px;width:150px;height:360px}
+.b .vu svg{width:100%;height:100%}
+.b .seekarc{position:absolute;inset:0}
+.b .transport{position:absolute;left:0;right:0;bottom:118px;display:flex;justify-content:center;align-items:center;gap:40px}
+.b .transport .btn{position:static;background:linear-gradient(180deg,#2b2e36,#15171c);border:1px solid #3c404a;box-shadow:0 8px 20px rgba(0,0,0,.7)}
+.b .transport .play{width:140px;height:140px;background:linear-gradient(180deg,#f6d891,#c99a2e);border-color:#f3cf7a}.b .transport .play svg{fill:#2a1d05;width:64px;height:64px}
+.b .pill{position:absolute;left:0;right:0;top:236px;display:flex;justify-content:center;gap:14px;font:600 18px var(--mono);letter-spacing:.14em;color:#f0c75e}
+.b .pill span{padding:8px 16px;border:1px solid rgba(240,199,94,.45);border-radius:6px}.b .pill span+span{color:#7ee2b0;border-color:rgba(126,226,176,.45)}
+.b .btn.side{top:420px;background:linear-gradient(180deg,#2b2e36,#15171c);border:1px solid #3c404a}
+
+/* ===== C. Editorial ===== */
+.c{background:#070709}
+.c .cover{position:absolute;right:150px;top:160px;width:300px;height:300px;border-radius:6px;background:
+  radial-gradient(circle at 30% 30%,#f5d08a 0%,transparent 35%),
+  radial-gradient(circle at 70% 60%,#2f4f9e 0%,transparent 45%),
+  radial-gradient(circle at 50% 85%,#b8482f 0%,transparent 40%),
+  linear-gradient(160deg,#1a2238,#0b0d14);box-shadow:0 30px 60px rgba(0,0,0,.7)}
+.c .glow{position:absolute;inset:0;background:radial-gradient(circle at 72% 32%,rgba(245,208,138,.16) 0%,transparent 40%)}
+.c .kick{position:absolute;left:170px;top:400px;width:620px;font:400 20px var(--mono);letter-spacing:.3em;color:#8d96a8}
+.c .t{position:absolute;left:166px;top:430px;width:640px;font:400 136px/.92 "Bebas Neue",var(--display);letter-spacing:.01em;color:#f2f4f8}
+.c .s{position:absolute;left:170px;top:700px;width:620px;font:300 34px/1.2 var(--body);color:#b9c0cf}
+.c .s b{font-weight:600;color:#fff}
+.c .meta{position:absolute;left:170px;top:760px;font:500 18px var(--mono);letter-spacing:.2em;color:#8d96a8}
+.c .meta i{color:#7ee2b0;font-style:normal}
+.c .seek{position:absolute;left:170px;right:170px;bottom:196px;height:3px;background:rgba(255,255,255,.18)}
+.c .seek i{display:block;width:38%;height:100%;background:#fff}
+.c .time{position:absolute;left:170px;right:170px;bottom:160px;display:flex;justify-content:space-between;font:500 20px var(--mono);color:#8d96a8}
+.c .transport{position:absolute;left:0;right:0;bottom:40px;display:flex;justify-content:center;align-items:center;gap:40px}
+.c .transport .btn{position:static;background:transparent;border:2px solid rgba(255,255,255,.22)}
+.c .transport .play{width:140px;height:140px;background:#fff;border:none}.c .transport .play svg{fill:#070709;width:64px;height:64px}
+.c .btn.side{top:420px;background:transparent;border:2px solid rgba(255,255,255,.18)}
+.c .btn.side svg{fill:#c9d2e3}
+.c .upnext{position:absolute;left:170px;top:820px;font:300 22px var(--body);color:#8d96a8}
+
+/* ===== D. Gallery × Editorial ===== */
+.d{background:#070709}
+.d .art{position:absolute;inset:0;background:
+  radial-gradient(circle at 30% 30%,#f5d08a 0%,transparent 35%),
+  radial-gradient(circle at 70% 60%,#2f4f9e 0%,transparent 45%),
+  radial-gradient(circle at 50% 85%,#b8482f 0%,transparent 40%),
+  linear-gradient(160deg,#1a2238,#0b0d14)}
+.d .art::after{content:"";position:absolute;inset:0;background:
+  linear-gradient(to bottom,rgba(7,7,9,.35) 0%,rgba(7,7,9,0) 26%,rgba(7,7,9,0) 40%,rgba(7,7,9,.82) 62%,rgba(7,7,9,.97) 100%)}
+.d.video .art{background:linear-gradient(180deg,#36220f 0%,#7a4a1c 35%,#c5793a 55%,#2a1708 100%)}
+.d .ring{position:absolute;left:330px;top:170px;width:420px;height:420px;border-radius:50%;border:12px solid rgba(0,0,0,.5);
+  background:repeating-radial-gradient(circle,rgba(0,0,0,.22) 0 4px,rgba(0,0,0,.42) 4px 7px);box-shadow:0 0 0 2px rgba(255,255,255,.16) inset,0 30px 60px rgba(0,0,0,.55)}
+.d .ring::after{content:"";position:absolute;left:174px;top:174px;width:50px;height:50px;border-radius:50%;background:#101216;border:4px solid #f5d08a}
+.d .kick{position:absolute;left:180px;top:600px;font:500 19px var(--mono);letter-spacing:.3em;color:#aab2c2}
+.d .kick i{color:#7ee2b0;font-style:normal}
+.d .t{position:absolute;left:176px;right:176px;top:626px;font:400 124px/.92 "Bebas Neue",var(--display);letter-spacing:.01em;color:#f6f7fa;text-shadow:0 2px 30px rgba(0,0,0,.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.d .s{position:absolute;left:180px;right:180px;top:748px;font:300 30px/1.2 var(--body);color:#c3cad8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.d .s b{font-weight:600;color:#fff}
+.d .seek{position:absolute;left:250px;right:250px;bottom:168px;height:4px;background:rgba(255,255,255,.22)}
+.d .seek i{display:block;width:38%;height:100%;background:#fff}
+.d .time{position:absolute;left:250px;right:250px;bottom:134px;display:flex;justify-content:space-between;font:500 20px var(--mono);color:#aab2c2}
+.d .transport{position:absolute;left:0;right:0;bottom:28px;display:flex;justify-content:center;align-items:center;gap:40px}
+.d .transport .btn{position:static;background:rgba(7,7,9,.45);border:2px solid rgba(255,255,255,.22)}
+.d .transport .play{width:136px;height:136px;background:#fff;border:none}.d .transport .play svg{fill:#070709;width:62px;height:62px}
+.d .btn.side{top:420px;background:rgba(7,7,9,.45);border:2px solid rgba(255,255,255,.18)}
+.d .vid-title{top:130px;text-align:center;left:230px;right:230px;font-size:72px;line-height:.95;white-space:normal;text-overflow:clip;overflow:visible}
+.d .vid-s{top:290px;text-align:center}
+.d .vid-kick{top:342px;left:0;right:0;text-align:center}
+.d .edge{position:absolute;left:340px;right:340px;bottom:66px;height:4px;background:rgba(255,255,255,.3)}.d .edge i{display:block;width:61%;height:100%;background:#fff}
+/* screensaver in the same face */
+.d.saver{background:#030304}
+.d.saver .clock{position:absolute;left:0;right:0;top:300px;text-align:center;font:400 300px/1 "Bebas Neue",var(--display);color:#b7bdc9;letter-spacing:.02em}
+.d.saver .date{position:absolute;left:0;right:0;top:612px;text-align:center;font:300 32px var(--body);color:#5e6572}
+.d.saver .np{position:absolute;left:0;right:0;top:700px;text-align:center;font:400 54px/1 "Bebas Neue",var(--display);color:#4b515d;letter-spacing:.02em}
+.d.saver .np small{display:block;font:300 24px var(--body);color:#4b515d;margin-top:6px;letter-spacing:0}
+.trio{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:22px;align-items:start;justify-items:center;margin-top:14px}
+.trio .disc-wrap{width:340px;height:340px}.trio .disc{transform:scale(.3148)}
+.trio figcaption{font:500 13px var(--mono);color:var(--mute);text-align:center;margin-top:8px}
+</style>
+
+<div class="wrap">
+<h1>Three looks for the round HUD</h1>
+<p class="lead">Same screen (Hi-Fi, Dua Lipa playing, 1:24 of 3:43), drawn at exactly half size with real panel pixels. Each keeps the geometry we fixed today (nothing beyond r 430, 112 px buttons, no overlaps) and nothing in them needs blur or shaders, so the Pi stays at 50+ fps.</p>
+
+<h2>A · Gallery <small>the art is the screen</small></h2>
+<div class="dir">
+  <div class="disc-wrap"><div class="disc a">
+    <div class="art"></div>
+    <div class="ring"></div>
+    <div class="btn side" style="left:96px"><svg viewBox="0 0 24 24"><path d="M3 6h18v2.2H3zm0 4.9h18v2.2H3zm0 4.9h18V18H3z"/></svg></div>
+    <div class="btn side" style="right:96px"><svg viewBox="0 0 24 24"><path d="M13 3h-2v10h2V3zm4.83 2.17-1.42 1.42A6.92 6.92 0 0 1 19 12a7 7 0 1 1-11.41-5.41L6.17 5.17A9 9 0 1 0 21 12a8.96 8.96 0 0 0-3.17-6.83z"/></svg></div>
+    <div class="title"><div class="t">Maria</div><div class="s">Dua Lipa · Radical Optimism</div></div>
+    <div class="meta"><span>FLAC 16/44</span><span>● BIT-PERFECT</span></div>
+    <div class="seek"><i></i></div>
+    <div class="time"><span>1:24</span><span>3:43</span></div>
+    <div class="transport">
+      <div class="btn"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></div>
+      <div class="btn play"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></div>
+      <div class="btn"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></div>
+    </div>
+  </div></div>
+  <div class="notes">
+    <p><b>What changes.</b> The cover fills the disc; a dark gradient only where the text and controls sit. The record becomes a translucent groove ring over the art, so the album stays visible through it. Play button, seek fill and the format readout take the album's own accent (here the warm gold pulled from the art); the fixed gold/cyan survive only as the little source label. Manrope 800 for the title.</p>
+    <ul>
+      <li>Looks different for every album, which is what a music player should do.</li>
+      <li>Video gets the identical frame with the picture instead of the cover, so the two modes feel like one product.</li>
+      <li>Busy covers are tamed by the bottom gradient, not by blur.</li>
+    </ul>
+    <div class="cost">GPU: one image + two gradients + a rotated ring → <i>same cost as today</i>.<br>Work: ~1 day. Accent extraction already exists (daemon dominant colour).<br>Risk: <em>low-contrast covers</em> need the fallback accent; handled by a luminance check.</div>
+  </div>
+</div>
+
+<h2>B · Instrument <small>a hi-fi object</small></h2>
+<div class="dir">
+  <div class="disc-wrap"><div class="disc b">
+    <div class="rim"></div><div class="rim2"></div>
+    <div class="title"><div class="t">Maria</div><div class="s">Dua Lipa · Radical Optimism</div></div>
+    <div class="pill"><span>FLAC 16/44.1</span><span>● BIT-PERFECT</span></div>
+    <div class="vinyl"><div class="label">RADICAL<br>OPTIMISM</div></div>
+    <div class="arm"><div class="head"></div></div>
+    <div class="vu" style="left:84px"><svg viewBox="0 0 150 360"><path d="M30 20 A 300 300 0 0 0 30 340" fill="none" stroke="#2a2d35" stroke-width="10" stroke-linecap="round"/><path d="M30 20 A 300 300 0 0 0 12 180" fill="none" stroke="#f0c75e" stroke-width="10" stroke-linecap="round"/><text x="60" y="186" fill="#7d8494" font-family="IBM Plex Mono" font-size="16" letter-spacing="3">L</text></svg></div>
+    <div class="vu" style="right:84px"><svg viewBox="0 0 150 360"><path d="M120 20 A 300 300 0 0 1 120 340" fill="none" stroke="#2a2d35" stroke-width="10" stroke-linecap="round"/><path d="M120 20 A 300 300 0 0 1 138 160" fill="none" stroke="#f0c75e" stroke-width="10" stroke-linecap="round"/><text x="78" y="186" fill="#7d8494" font-family="IBM Plex Mono" font-size="16" letter-spacing="3">R</text></svg></div>
+    <svg class="seekarc" viewBox="0 0 1080 1080"><path d="M 200 870 A 470 470 0 0 0 880 870" fill="none" stroke="#2a2d35" stroke-width="12" stroke-linecap="round"/><path d="M 200 870 A 470 470 0 0 0 458 1006" fill="none" stroke="#f0c75e" stroke-width="12" stroke-linecap="round"/><text x="150" y="860" fill="#aeb6c6" font-family="IBM Plex Mono" font-size="22" text-anchor="end">1:24</text><text x="930" y="860" fill="#aeb6c6" font-family="IBM Plex Mono" font-size="22">3:43</text></svg>
+    <div class="engr" style="left:0;right:0;top:66px;text-align:center">ROUND PLAYER · DAC PRO</div>
+    <div class="btn side" style="left:96px"><svg viewBox="0 0 24 24"><path d="M3 6h18v2.2H3zm0 4.9h18v2.2H3zm0 4.9h18V18H3z"/></svg></div>
+    <div class="btn side" style="right:96px"><svg viewBox="0 0 24 24"><path d="M13 3h-2v10h2V3zm4.83 2.17-1.42 1.42A6.92 6.92 0 0 1 19 12a7 7 0 1 1-11.41-5.41L6.17 5.17A9 9 0 1 0 21 12a8.96 8.96 0 0 0-3.17-6.83z"/></svg></div>
+    <div class="transport">
+      <div class="btn"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></div>
+      <div class="btn play"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></div>
+      <div class="btn"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></div>
+    </div>
+  </div></div>
+  <div class="notes">
+    <p><b>What changes.</b> A brushed-metal rim at the bezel, enamel-black face, a big record with a real label and a tonearm that swings onto it when you press play. The seek bar becomes an arc along the lower edge, the one control a round screen does better than a rectangle. Two VU arcs left and right follow the audio level (mpv reports it; 10 Hz is plenty). Sora for the title, IBM Plex Mono for every readout, like a front panel.</p>
+    <ul>
+      <li>Reads as a device you bought, not an app you installed. Fits the DAC Pro story.</li>
+      <li>The arc seek and VU meters give the rim a reason to exist.</li>
+      <li>Video mode drops the record and arm but keeps rim, arc and meters.</li>
+    </ul>
+    <div class="cost">GPU: vectors + one rotated image; VU arcs repaint a 150 px box at 10 Hz → <i>fine</i>.<br>Work: ~2 days (tonearm, arc seek with touch mapping, level feed from mpv).<br>Risk: <em>arc seek is harder to scrub precisely</em>; keep tap-to-seek and the ±10 s double-tap.</div>
+  </div>
+</div>
+
+<h2>C · Editorial <small>typography first</small></h2>
+<div class="dir">
+  <div class="disc-wrap"><div class="disc c">
+    <div class="glow"></div>
+    <div class="cover"></div>
+    <div class="kick">NOW PLAYING · FLAC</div>
+    <div class="t">MARIA</div>
+    <div class="s"><b>Dua Lipa</b> Radical Optimism</div>
+    <div class="meta">16 BIT · 44.1 kHz · <i>BIT-PERFECT</i></div>
+    <div class="upnext">Up next · Happy for You</div>
+    <div class="seek"><i></i></div>
+    <div class="time"><span>1:24</span><span>3:43</span></div>
+    <div class="btn side" style="left:96px"><svg viewBox="0 0 24 24"><path d="M3 6h18v2.2H3zm0 4.9h18v2.2H3zm0 4.9h18V18H3z"/></svg></div>
+    <div class="btn side" style="right:96px"><svg viewBox="0 0 24 24"><path d="M13 3h-2v10h2V3zm4.83 2.17-1.42 1.42A6.92 6.92 0 0 1 19 12a7 7 0 1 1-11.41-5.41L6.17 5.17A9 9 0 1 0 21 12a8.96 8.96 0 0 0-3.17-6.83z"/></svg></div>
+    <div class="transport">
+      <div class="btn"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></div>
+      <div class="btn play"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></div>
+      <div class="btn"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></div>
+    </div>
+  </div></div>
+  <div class="notes">
+    <p><b>What changes.</b> Near-monochrome. One huge condensed title (Bebas Neue, 136 px) left-aligned, the artist in a light weight, a small square cover top-right with a faint glow in its colour. Everything else drops to grey. Only the play button is white. The screensaver clock uses the same face at the same size, so the idle screen and the player are one object.</p>
+    <ul>
+      <li>Most readable from across the room; the title is the picture.</li>
+      <li>Calmest at night; almost no light leaves the panel.</li>
+      <li>Least "player-like": no record, no art spectacle.</li>
+    </ul>
+    <div class="cost">GPU: text + one small image → <i>cheapest of the three</i>.<br>Work: ~1 day.<br>Risk: <em>long titles</em> ("Harder, Better, Faster, Stronger") need an auto-shrink to 96 px; two lines max.</div>
+  </div>
+</div>
+
+
+<h2>D · Gallery × Editorial <small>the hybrid</small></h2>
+<div class="dir">
+  <div class="disc-wrap"><div class="disc d">
+    <div class="art"></div>
+    <div class="ring"></div>
+    <div class="btn side" style="left:96px"><svg viewBox="0 0 24 24"><path d="M3 6h18v2.2H3zm0 4.9h18v2.2H3zm0 4.9h18V18H3z"/></svg></div>
+    <div class="btn side" style="right:96px"><svg viewBox="0 0 24 24"><path d="M13 3h-2v10h2V3zm4.83 2.17-1.42 1.42A6.92 6.92 0 0 1 19 12a7 7 0 1 1-11.41-5.41L6.17 5.17A9 9 0 1 0 21 12a8.96 8.96 0 0 0-3.17-6.83z"/></svg></div>
+    <div class="kick">FLAC 16 · 44.1 kHz · <i>BIT-PERFECT</i></div>
+    <div class="t">MARIA</div>
+    <div class="s"><b>Dua Lipa</b> Radical Optimism · up next Happy for You</div>
+    <div class="seek"><i></i></div>
+    <div class="time"><span>1:24</span><span>3:43</span></div>
+    <div class="transport">
+      <div class="btn"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></div>
+      <div class="btn play"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></div>
+      <div class="btn"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></div>
+    </div>
+  </div></div>
+  <div class="notes">
+    <p><b>How it combines.</b> A's full-bleed cover and translucent groove ring on the upper half; C's typography owns the lower half: the title in Bebas Neue at 124 px, left-aligned on the chord, artist and album in a light weight on one line with "up next" tucked after it, a mono readout line above. Controls are C's monochrome: white play, outlined prev/next, no gold, no cyan. The only colour on the screen is the album's.</p>
+    <ul>
+      <li>Album art gives every track its own look; the big white title keeps it legible over any cover.</li>
+      <li>Nothing is centred except the transport, so the eye has a start point (top-left of the title) and the disc stops feeling like a clock face.</li>
+      <li>Titles longer than the chord auto-shrink to 96 px, then ellipsis; two lines never happen, the artist line stays put.</li>
+    </ul>
+    <div class="cost">GPU: image + two gradients + rotated ring + text → <i>same as today</i>.<br>Work: ~1.5 days incl. the screensaver and video variants below, Bebas Neue + Inter Tight bundled.<br>Risk: <em>Bebas has no lowercase</em>; mixed-case titles become caps, which suits most but not all ("iTunes Session"). Fallback: Oswald 600 if you'd rather keep case.</div>
+  </div>
+</div>
+<div class="trio">
+  <figure style="margin:0">
+    <div class="disc-wrap"><div class="disc d video">
+      <div class="art"></div>
+      <div class="btn side" style="left:96px"><svg viewBox="0 0 24 24"><path d="M3 6h18v2.2H3zm0 4.9h18v2.2H3zm0 4.9h18V18H3z"/></svg></div>
+      <div class="btn side" style="right:96px"><svg viewBox="0 0 24 24"><path d="M13 3h-2v10h2V3zm4.83 2.17-1.42 1.42A6.92 6.92 0 0 1 19 12a7 7 0 1 1-11.41-5.41L6.17 5.17A9 9 0 1 0 21 12a8.96 8.96 0 0 0-3.17-6.83z"/></svg></div>
+      <div class="t vid-title">HARDER, BETTER,<br>FASTER, STRONGER</div>
+      <div class="s vid-s"><b>Daft Punk</b></div>
+      <div class="kick vid-kick">1080P · YOUTUBE · <i>CASTING · IPHONE</i></div>
+      <div class="seek"><i style="width:61%"></i></div>
+      <div class="time"><span>2:17</span><span>3:45</span></div>
+      <div class="transport">
+        <div class="btn"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></div>
+        <div class="btn play"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></div>
+        <div class="btn"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></div>
+      </div>
+    </div></div>
+    <figcaption>video, controls shown · title moves to the top so the picture stays clear</figcaption>
+  </figure>
+  <figure style="margin:0">
+    <div class="disc-wrap"><div class="disc d video">
+      <div class="art"></div>
+      <div class="edge"><i></i></div>
+    </div></div>
+    <figcaption>video, controls hidden · only the 4 px edge line</figcaption>
+  </figure>
+  <figure style="margin:0">
+    <div class="disc-wrap"><div class="disc d saver">
+      <div class="clock">22:41</div>
+      <div class="date">Thursday 16 October · 11° Glasgow</div>
+      <div class="np">MARIA<small>Dua Lipa · still playing</small></div>
+    </div></div>
+    <figcaption>screensaver · same face, 30 % grey, no light in the room</figcaption>
+  </figure>
+</div>
+
+<div class="verdict">
+  <h2>My pick now: D</h2>
+  <p>The hybrid keeps everything that made A right (the art does the work, free on the GPU) and fixes A's one weakness: a centred Manrope title over a bright cover can get lost. The condensed white title at 124 px never loses. It also gives the screensaver and the player the same voice, which no other option did.</p>
+  <p>A is the one that still looks good with the thousandth album, because the album does the work. The rules that keep it clean are already in the code: the content band, the bottom gradient, finger-sized buttons. It costs nothing on the GPU and the accent extraction exists in the daemon.</p>
+  <p>From B, take the arc seek along the lower edge and the brushed rim. The arc gives the round panel its own gesture without the volume-ring problem (it is a <em>display</em> you can tap, not a gesture you can trigger by accident), and the rim makes the bezel look intentional instead of like a cut-off. Skip the tonearm and the VU meters for now; they are the kind of thing that looks great in a render and busy at 8 p.m.</p>
+  <p>C stays as the screensaver: the big condensed clock, and when something is playing, the title in the same face underneath it. That is where its calm belongs.</p>
+  <div class="row"><span class="pick">A + arc seek + rim</span><span class="pick on">D hybrid</span><span class="pick">A pure</span><span class="pick">B pure</span><span class="pick">C pure</span></div>
+</div>
+</div>

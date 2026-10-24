@@ -1,0 +1,65 @@
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+round_hud_app/build/
+round_hud_app/.dart_tool/
+round_hud_app/packages/
+
+# Node.js
+node_modules/
+.node-persist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data & secrets
+.env
+.env.*
+*.local
+/data/
+/tmp/
+
+# IDE & editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.gemini/

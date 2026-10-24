@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Round Player</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#07090f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+:root{--bg:#07090f;--card:#0f1420;--card2:#151c2c;--line:rgba(255,255,255,.08);--fg:#e8edf6;--mute:#8b96ad;
+  --accent:#00e5ff;--gold:#fbbf24;--green:#10b981;--red:#f87171;--nav:64px;--safe-b:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;height:100%}
+body{display:flex;flex-direction:column;min-height:100dvh;overscroll-behavior:none}
+header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top,0px)) 16px 10px;background:linear-gradient(var(--bg),rgba(7,9,15,.9));backdrop-filter:blur(12px)}
+header h1{font-size:14px;letter-spacing:2px;font-weight:800;margin:0;flex:1}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 8px var(--red)}
+.dot.on{background:var(--green);box-shadow:0 0 8px var(--green)}
+main{flex:1;padding:0 16px calc(var(--nav) + var(--safe-b) + 16px)}
+.tab{display:none}.tab.active{display:block}
+nav{position:fixed;left:0;right:0;bottom:0;height:calc(var(--nav) + var(--safe-b));padding-bottom:var(--safe-b);display:flex;background:rgba(10,13,22,.96);border-top:1px solid var(--line);backdrop-filter:blur(14px);z-index:5}
+nav button{flex:1;background:none;border:0;color:var(--mute);font:inherit;font-size:10px;font-weight:700;letter-spacing:1px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer}
+nav button svg{width:22px;height:22px;fill:currentColor}nav button.active{color:var(--accent)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;margin-top:14px}
+.card h2{margin:0 0 10px;font-size:11px;letter-spacing:1.5px;color:var(--mute);font-weight:800;text-transform:uppercase}
+.row{display:flex;align-items:center;gap:12px}
+.btn{background:var(--card2);border:1px solid var(--line);color:var(--fg);border-radius:12px;padding:12px 14px;font:inherit;font-weight:700;cursor:pointer;min-height:44px}
+.btn:active{transform:scale(.97)}.btn.primary{background:var(--accent);color:#04101a;border-color:transparent}
+.btn.danger{color:var(--red);border-color:rgba(248,113,113,.4)}.btn.gold{color:var(--gold);border-color:rgba(251,191,36,.4)}
+.btn.sm{padding:8px 10px;min-height:36px;font-size:12px;border-radius:10px}
+.btn[disabled]{opacity:.5}
+input[type=text],input[type=password],input[type=search]{width:100%;background:#0a0e18;border:1px solid var(--line);color:var(--fg);border-radius:12px;padding:12px 14px;font:inherit;outline:none;min-height:44px}
+input:focus{border-color:var(--accent)}
+input[type=range]{width:100%;accent-color:var(--accent);height:32px}
+.pill{display:inline-block;padding:3px 9px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.8px;border:1px solid var(--line);color:var(--mute)}
+.pill.gold{color:var(--gold);border-color:rgba(251,191,36,.5)}.pill.cyan{color:var(--accent);border-color:rgba(0,229,255,.5)}.pill.green{color:var(--green);border-color:rgba(16,185,129,.5)}
+/* now playing */
+.cover{width:100%;aspect-ratio:1;border-radius:20px;object-fit:cover;background:#0a0e18;box-shadow:0 20px 50px rgba(0,0,0,.6)}
+.title{font-size:20px;font-weight:800;margin:14px 0 2px;line-height:1.25}.artist{color:var(--mute);font-size:14px}
+.seek{margin:14px 0 2px}.times{display:flex;justify-content:space-between;font-size:11px;color:var(--mute);font-variant-numeric:tabular-nums}
+.transport{display:flex;align-items:center;justify-content:center;gap:22px;margin:10px 0}
+.transport button{background:var(--card2);border:1px solid var(--line);color:var(--fg);width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.transport button svg{width:26px;height:26px;fill:currentColor}
+.transport .play{width:76px;height:76px;background:var(--accent);color:#04101a;border:0}.transport .play svg{width:34px;height:34px}
+.transport button:active{transform:scale(.94)}
+.caching{display:none;margin-top:10px;padding:10px 12px;border-radius:12px;background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.3);font-size:12px}
+.caching .bar{height:4px;border-radius:2px;background:rgba(255,255,255,.1);margin-top:6px;overflow:hidden}.caching .bar i{display:block;height:100%;width:5%;background:var(--accent);transition:width .3s}
+/* lists */
+.list{display:flex;flex-direction:column}
+.item{display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid var(--line);cursor:pointer;min-height:56px}
+.item:last-child{border-bottom:0}.item:active{background:rgba(255,255,255,.04)}
+.item img,.item .ph{width:46px;height:46px;border-radius:9px;object-fit:cover;background:#0a0e18;flex:none;display:flex;align-items:center;justify-content:center;color:var(--mute);font-size:18px}
+.item .meta{flex:1;min-width:0}.item .t{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.item .s{color:var(--mute);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item.now .t{color:var(--accent)}
+.item .acts{display:flex;gap:6px;flex:none}
+.iconbtn{background:var(--card2);border:1px solid var(--line);color:var(--fg);width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px}
+.crumbs{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--mute);margin:6px 0 10px}.crumbs b{color:var(--fg);cursor:pointer}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:4px 0 8px;scrollbar-width:none}.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;padding:8px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card2);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}.chip.active{border-color:var(--accent);color:var(--accent)}
+.empty{color:var(--mute);text-align:center;padding:26px 0;font-size:13px}
+/* settings */
+.opt{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}.opt:last-child{border-bottom:0}
+.opt label{font-weight:700;font-size:14px}.opt small{display:block;color:var(--mute);font-weight:400;font-size:11px;margin-top:2px}
+select{background:#0a0e18;color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit;min-height:40px;max-width:46%}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px}.kv div{background:var(--card2);border-radius:10px;padding:8px 10px}.kv b{display:block;color:var(--mute);font-size:10px;letter-spacing:1px;font-weight:800}
+.sig{width:22px;flex:none;font-size:11px;color:var(--mute);text-align:center}
+.toast{position:fixed;left:50%;bottom:calc(var(--nav) + var(--safe-b) + 14px);transform:translateX(-50%) translateY(20px);background:#1a2234;color:#fff;padding:10px 16px;border-radius:12px;font-size:13px;opacity:0;transition:.25s;z-index:9;max-width:90vw;border:1px solid var(--line)}
+.toast.show{opacity:1;transform:translateX(-50%)}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:flex-end;z-index:8}.sheet.open{display:flex}
+.sheet .panel{background:var(--card);width:100%;border-radius:20px 20px 0 0;padding:18px 16px calc(18px + var(--safe-b));max-height:80vh;overflow:auto}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.2);border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite;vertical-align:middle}@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header><h1>ROUND PLAYER</h1><span id="fmtPill" class="pill" style="display:none"></span><span id="conn" class="dot" title="connection"></span></header>
+
+<main>
+<!-- NOW PLAYING -->
+<section id="tab-now" class="tab active">
+  <div class="card" style="margin-top:8px">
+    <img id="cover" class="cover" alt="" onerror="this.onerror=null;this.src=coverFor(null)">
+    <div id="npTitle" class="title">—</div>
+    <div id="npArtist" class="artist">Nothing playing</div>
+    <div id="caching" class="caching"><span id="cachingText">Preparing…</span><div class="bar"><i id="cachingBar"></i></div></div>
+    <div class="seek"><input id="seek" type="range" min="0" max="1000" value="0"></div>
+    <div class="times"><span id="tPos">0:00</span><span id="tDur">0:00</span></div>
+    <div class="transport">
+      <button id="btnPrev" aria-label="previous"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>
+      <button id="btnPlay" class="play" aria-label="play/pause"><svg id="playIcon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
+      <button id="btnNext" aria-label="next"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
+    </div>
+    <div class="row" style="margin-top:6px"><span class="pill" style="min-width:52px;text-align:center" id="volVal">100%</span><input id="vol" type="range" min="0" max="100" value="100"></div>
+    <div class="row" style="margin-top:12px;gap:8px">
+      <button class="btn sm" id="btnShuffle">🔀 Shuffle</button>
+      <button class="btn sm" id="btnRepeat">🔁 Repeat: all</button>
+      <span style="flex:1"></span>
+      <button class="btn sm danger" id="btnStandby">⏻ Standby</button>
+    </div>
+  </div>
+</section>
+
+<!-- LIBRARY (Hi-Fi) -->
+<section id="tab-lib" class="tab">
+  <div class="card" style="margin-top:8px">
+    <input id="libSearch" type="search" placeholder="Search lossless library…" autocomplete="off">
+    <div class="chips" style="margin-top:10px">
+      <span class="chip" id="chipRecent">🕘 Recent</span>
+      <span class="chip" id="chipLike">✨ Like this</span>
+      <span class="chip" id="chipRadio">📻 Artist radio</span>
+      <span class="chip" data-mix="favorites">❤️ Favorites</span>
+      <span class="chip" data-mix="heavy_rotation">🔥 Heavy rotation</span>
+      <span class="chip" data-mix="rediscover">🔁 Rediscover</span>
+      <span class="chip" data-mix="never_played">🧭 Never played</span>
+      <span class="chip" data-mix="random">🎲 Shuffle 50</span>
+      <span class="chip" data-mix="recently_added">🆕 New</span>
+      <span class="chip" data-mix="audiophile">💎 Hi-Res</span>
+      <span class="chip" id="chipPlaylists">📑 Playlists</span>
+    </div>
+    <div id="crumbs" class="crumbs"></div>
+    <div id="libList" class="list"><div class="empty">Loading library…</div></div>
+  </div>
+</section>
+
+<!-- YOUTUBE -->
+<section id="tab-yt" class="tab">
+  <div class="card" style="margin-top:8px">
+    <div class="row"><input id="ytSearch" type="search" placeholder="Search YouTube or paste a link…" autocomplete="off"><button class="btn primary" id="ytGo">Go</button></div>
+    <div id="ytList" class="list" style="margin-top:8px"></div>
+  </div>
+  <div class="card"><h2>Cached on the player</h2><div id="cachedList" class="list"><div class="empty">—</div></div></div>
+</section>
+
+<!-- QUEUE -->
+<section id="tab-queue" class="tab">
+  <div class="card" style="margin-top:8px">
+    <div class="row"><h2 style="flex:1;margin:0">Up next</h2><button class="btn sm danger" id="btnClearQueue">Clear</button></div>
+    <div id="queueList" class="list" style="margin-top:8px"><div class="empty">Queue is empty</div></div>
+  </div>
+</section>
+
+<!-- SETTINGS -->
+<section id="tab-settings" class="tab">
+  <div class="card" style="margin-top:8px">
+    <h2>Audio path</h2>
+    <div id="audioLive" class="kv"></div>
+    <div class="row" style="margin-top:10px;gap:8px">
+      <button class="btn sm gold" id="btnBestQuality">💎 Reference preset</button>
+      <button class="btn sm" id="btnAudioReset">Reset</button>
+      <button class="btn sm" id="btnAudioRefresh">↻</button>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Equaliser</h2>
+    <div id="eqCheck" class="empty" style="display:none;padding:0 0 8px;text-align:left"></div>
+    <div class="opt"><label>EQ<small>Off = bit-perfect direct path</small></label><select id="eqEnabled"><option value="false">Off</option><option value="true">On</option></select></div>
+    <div class="chips" id="eqPresets"></div>
+    <div id="eqSliders"></div>
+    <div class="opt"><label>Night loudness<small>Lifts lows and highs at low volume</small></label><select id="eqLoud"><option value="false">Off</option><option value="true">On</option></select></div>
+    <div class="opt"><label>Headphone crossfeed<small>Blends a little of each side into the other</small></label><select id="eqXf"><option value="off">Off</option><option value="light">Light</option><option value="medium">Medium</option><option value="strong">Strong</option></select></div>
+  </div>
+  <div class="card">
+    <h2>Display</h2>
+    <div id="dispSliders"></div>
+    <div class="opt"><label>Night mode<small>Dimmer and warmer on a schedule</small></label><select id="dispNight"><option value="false">Off</option><option value="true">On</option></select></div>
+    <div class="row" style="gap:8px"><input id="nightFrom" type="time" value="22:00" style="flex:1"><span style="color:var(--mute)">to</span><input id="nightTo" type="time" value="07:00" style="flex:1"></div>
+    <div id="nightSliders"></div>
+    <div class="row" style="margin-top:10px"><button class="btn sm" id="btnDispReset">Reset display</button></div>
+  </div>
+  <div class="card"><h2>DAC Pro</h2><div id="dacOpts"></div></div>
+  <div class="card">
+    <h2>Wi-Fi</h2>
+    <div id="netStatus" class="kv"></div>
+    <div class="row" style="margin-top:10px;gap:8px"><button class="btn sm" id="btnScan">Scan networks</button><button class="btn sm" id="btnHotspot">Setup hotspot</button></div>
+    <div class="opt" style="margin-top:6px"><label>Band preference<small>5 GHz for dual-band networks; needs a Wi-Fi country set</small></label><select id="bandPref"><option value="5">Prefer 5 GHz</option><option value="auto">Auto</option><option value="2.4">2.4 GHz only</option></select></div>
+    <div class="opt"><label>Hotspot band<small>5 GHz ch.36 is faster; 2.4 reaches further</small></label><select id="hotspotBand"><option value="5">5 GHz</option><option value="2.4">2.4 GHz</option></select></div>
+    <div id="netList" class="list" style="margin-top:8px"></div>
+  </div>
+  <div class="card">
+    <h2>Player</h2>
+    <div class="opt"><label>Idle timeout<small>Return to the clock after inactivity</small></label><select id="idleTimeout"><option value="0">Never</option><option value="60">1 min</option><option value="120">2 min</option><option value="300">5 min</option><option value="900">15 min</option></select></div>
+    <div class="opt"><label>Sleep timer<small id="sleepSub">Fades out, then standby</small></label><select id="sleepTimer"><option value="0">Off</option><option value="15">15 min</option><option value="30">30 min</option><option value="45">45 min</option><option value="60">1 h</option><option value="90">1½ h</option></select></div>
+    <div class="opt"><label>Maximum volume<small>Caps the slider</small></label><select id="volCeiling"><option value="100">100%</option><option value="80">80%</option><option value="60">60%</option><option value="40">40%</option></select></div>
+    <div class="opt"><label>YouTube casts<small>YouTube Music always plays as audio</small></label><select id="ytAudioOnly"><option value="false">Video</option><option value="true">Audio + cover</option></select></div>
+    <div class="opt"><label>Keep a copy of casts<small>Also download in the background for offline replay</small></label><select id="ytKeep"><option value="false">Off</option><option value="true">On</option></select></div>
+    <div class="opt"><label>Clock<small>On the standby screen</small></label><select id="clock24"><option value="false">12-hour</option><option value="true">24-hour</option></select></div>
+    <div class="opt"><label>After the album<small>With repeat off</small></label><select id="afterAlbum"><option value="similar">Keep playing similar music</option><option value="stop">Stop</option></select></div>
+    <div class="opt"><label>Loudness normalisation<small>Off for bit-perfect playback</small></label><select id="loudnorm"><option value="false">Off</option><option value="true">On</option></select></div>
+    <div class="row" style="margin-top:12px;gap:8px"><button class="btn sm" id="btnRestart">Restart services</button><button class="btn sm danger" id="btnClearCache">Clear video cache</button></div>
+  </div>
+  <div class="card">
+    <h2>Alarm</h2>
+    <div class="opt"><label>Wake to music<small>Starts quiet, fades up over a minute</small></label><select id="alarmOn"><option value="false">Off</option><option value="true">On</option></select></div>
+    <div class="opt"><label>Time</label><input id="alarmTime" type="time" value="07:30" style="max-width:46%"></div>
+    <div class="opt"><label>Days</label><select id="alarmDays"><option value="weekdays">Weekdays</option><option value="daily">Every day</option><option value="weekend">Weekends</option></select></div>
+    <div class="opt"><label>Plays</label><select id="alarmSource"><option value="last">Where you left off</option><option value="favorites">Favourites, shuffled</option><option value="similar">Music like the last track</option></select></div>
+    <div class="opt"><label>Volume<small id="alarmVolVal">45%</small></label><input id="alarmVol" type="range" min="5" max="100" value="45" style="max-width:46%"></div>
+  </div>
+  <div class="card">
+    <h2>Receivers</h2>
+    <div id="srcKv" class="kv"></div>
+    <div class="empty" style="padding:8px 0 0;font-size:11px;text-align:left">Pick "Living Room Player" from AirPlay on an iPhone/Mac or from Spotify's device list. Both go through the same EQ and DAC.</div>
+  </div>
+  <div class="card">
+    <h2>Home Assistant (MQTT)</h2>
+    <div class="opt"><label>Enabled<small>Auto-discovered as a device in Home Assistant</small></label><select id="mqOn"><option value="false">Off</option><option value="true">On</option></select></div>
+    <div class="opt"><label>Broker</label><input id="mqHost" type="text" placeholder="homeassistant.local" style="max-width:52%"></div>
+    <div class="opt"><label>Port</label><input id="mqPort" type="text" value="1883" style="max-width:30%"></div>
+    <div class="opt"><label>Username</label><input id="mqUser" type="text" autocomplete="off" style="max-width:52%"></div>
+    <div class="opt"><label>Password</label><input id="mqPass" type="password" autocomplete="off" style="max-width:52%"></div>
+    <div class="row" style="margin-top:8px"><button class="btn sm primary" id="btnMqSave">Save &amp; connect</button></div>
+  </div>
+  <div class="card">
+    <h2>Software update</h2>
+    <div id="updKv" class="kv"></div>
+    <div class="opt"><label>Source URL<small>.tar.gz of the repo, e.g. GitHub ".../archive/refs/heads/main.tar.gz"</small></label></div>
+    <input id="updUrl" type="text" placeholder="https://github.com/you/roundplayer/archive/refs/heads/main.tar.gz">
+    <div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap"><button class="btn sm" id="btnUpdSave">Save URL</button><button class="btn sm gold" id="btnUpdNow">Update now</button><button class="btn sm danger" id="btnUpdBack">Roll back</button></div>
+  </div>
+  <div class="card">
+    <h2>Diagnostics</h2>
+    <div id="healthKv" class="kv"></div>
+    <pre id="healthLog" style="font-size:11px;color:var(--mute);white-space:pre-wrap;max-height:220px;overflow:auto;margin:10px 0 0;background:var(--card2);border-radius:10px;padding:8px"></pre>
+    <div class="row" style="margin-top:8px"><button class="btn sm" id="btnHealth">↻ Refresh</button></div>
+  </div>
+  <div class="card">
+    <h2>Backup</h2>
+    <div id="backupStatus" class="kv"></div>
+    <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+      <button class="btn sm" id="btnBackupNow">Back up now</button>
+      <a class="btn sm" id="btnBackupDl" href="/api/backup" download="roundplayer-backup.json" style="text-decoration:none;display:flex;align-items:center">⬇ Download</a>
+      <label class="btn sm" style="display:flex;align-items:center;cursor:pointer">⬆ Restore from file<input id="backupFile" type="file" accept="application/json" style="display:none"></label>
+    </div>
+    <div class="empty" style="padding:8px 0 0;font-size:11px;text-align:left">Audio, EQ, display, clock, playlists, favourites and history. Written to the SD card's boot partition every 5 minutes when something changed; a fresh card restores from it on first boot.</div>
+  </div>
+</section>
+</main>
+
+<nav>
+  <button data-tab="now" class="active"><svg viewBox="0 0 24 24"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3z"/></svg>NOW</button>
+  <button data-tab="lib"><svg viewBox="0 0 24 24"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>LIBRARY</button>
+  <button data-tab="yt"><svg viewBox="0 0 24 24"><path d="M10 15l5.2-3L10 9zm11.6-7.8c.4 1.5.4 4.8.4 4.8s0 3.3-.4 4.8a2.5 2.5 0 0 1-1.8 1.8C18.3 19 12 19 12 19s-6.3 0-7.8-.4a2.5 2.5 0 0 1-1.8-1.8C2 15.3 2 12 2 12s0-3.3.4-4.8A2.5 2.5 0 0 1 4.2 5.4C5.7 5 12 5 12 5s6.3 0 7.8.4a2.5 2.5 0 0 1 1.8 1.8z"/></svg>YOUTUBE</button>
+  <button data-tab="queue"><svg viewBox="0 0 24 24"><path d="M3 6h12v2H3zm0 4h12v2H3zm0 4h8v2H3zm14-4v6.5a2.5 2.5 0 1 1-2-2.45V8h4v2z"/></svg>QUEUE</button>
+  <button data-tab="settings"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1l-.4-2.7h-4l-.4 2.7a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.7h4l.4-2.7a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg>SETTINGS</button>
+</nav>
+
+<div id="toast" class="toast"></div>
+<div id="sheet" class="sheet"><div class="panel" id="sheetPanel"></div></div>
+
+<script>
+'use strict';
+// ---------- helpers ----------
+const $ = s => document.querySelector(s);
+const el = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) { if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (k === 'html') e.innerHTML = v; else e.setAttribute(k, v); } for (const k of kids) e.append(k); return e; };
+const fmtT = s => { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+let toastT; const toast = m => { const t = $('#toast'); t.textContent = m; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2200); };
+async function api(path, opts = {}) {
+  const o = { method: opts.method || (opts.body ? 'POST' : 'GET'), headers: {} };
+  if (opts.body !== undefined) { o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(opts.body); }
+  const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), opts.timeout || 15000); o.signal = ctl.signal;
+  try {
+    const r = await fetch(path, o); clearTimeout(to);
+    const ct = r.headers.get('content-type') || '';
+    const data = ct.includes('json') ? await r.json() : await r.text();
+    if (!r.ok) throw new Error((data && data.detail) || (data && data.error) || `${r.status}`);
+    return data;
+  } catch (e) { clearTimeout(to); if (!opts.quiet) toast(`Error: ${e.message}`); throw e; }
+}
+const sheet = (content) => { const p = $('#sheetPanel'); p.innerHTML = ''; p.append(content); $('#sheet').classList.add('open'); };
+const closeSheet = () => $('#sheet').classList.remove('open');
+$('#sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeSheet(); });
+
+// ---------- tabs ----------
+document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+function showTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + name));
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  try { localStorage.setItem('rp.tab', name); } catch (_) {}
+  if (name === 'lib' && !lib.loaded) loadLibrary();
+  if (name === 'yt') loadCached();
+  if (name === 'queue') loadQueue();
+  if (name === 'settings') { loadAudio(); loadEq(); loadDisplay(); loadNetwork(); loadPlayerSettings(); loadAlarm(); loadSources(); loadMqtt(); loadUpdate(); loadHealth(); loadBackup(); }
+}
+
+// ---------- state / telemetry ----------
+const st = { playing: false, pos: 0, dur: 0, trackId: null, isHifi: false, seeking: false, volume: 100, shuffle: false, repeat: 'all' };
+let ws, wsTimer;
+function connectWS() {
+  try { ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/telemetry'); } catch (_) { return scheduleWS(); }
+  ws.onopen = () => $('#conn').classList.add('on');
+  ws.onmessage = ev => { try { applyTelemetry(JSON.parse(ev.data)); } catch (_) {} };
+  ws.onclose = ws.onerror = () => { $('#conn').classList.remove('on'); scheduleWS(); };
+}
+function scheduleWS() { clearTimeout(wsTimer); wsTimer = setTimeout(connectWS, 2500); }
+let lastCover = '';
+function applyTelemetry(d) {
+  if (d.error) return;
+  const trackChanged = d.track_id !== st.trackId;
+  st.trackId = d.track_id; st.isHifi = !!d.is_hifi;
+  if (d.is_playing !== undefined) { st.playing = d.is_playing; $('#playIcon').innerHTML = st.playing ? '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>' : '<path d="M8 5v14l11-7z"/>'; }
+  if (d.title) $('#npTitle').textContent = d.title;
+  $('#npArtist').textContent = [d.artist, d.album].filter(Boolean).join(' · ') || (d.track_id === 'standby' ? 'Standby' : '');
+  if (d.position_s !== undefined && !st.seeking) { st.pos = d.position_s; st.dur = d.duration_s || st.dur; renderSeek(); }
+  if (d.volume !== undefined && !volDragging) { st.volume = d.volume; $('#vol').value = Math.round(d.volume); $('#volVal').textContent = Math.round(d.volume) + '%'; }
+  if (d.shuffle !== undefined) { st.shuffle = d.shuffle; $('#btnShuffle').classList.toggle('gold', st.shuffle); }
+  if (d.repeat) { st.repeat = d.repeat; $('#btnRepeat').textContent = '🔁 Repeat: ' + st.repeat; }
+  if (d.color && /^#[0-9a-f]{6}$/i.test(d.color)) document.documentElement.style.setProperty('--accent', d.color);
+  const fp = $('#fmtPill');
+  if (d.audio_format) { fp.style.display = ''; fp.className = 'pill ' + (st.isHifi ? 'gold' : ''); fp.textContent = st.isHifi ? `${d.audio_format} ${d.bit_depth}/${Math.round((d.sample_rate_hz || 0) / 1000)}k` : d.audio_format; }
+  if (d.caching_video_id) { $('#caching').style.display = 'block'; $('#cachingText').textContent = `${d.caching_title || 'Incoming'} — ${d.caching_progress || 'preparing'} ${d.caching_percent || 0}%`; $('#cachingBar').style.width = Math.max(5, d.caching_percent || 0) + '%'; }
+  else $('#caching').style.display = 'none';
+  const cover = coverFor(d.track_id, st.isHifi);
+  if (cover !== lastCover) { lastCover = cover; const c = $('#cover'); c.onerror = () => { c.onerror = null; c.src = coverFor(null); }; c.src = cover; }
+  if (trackChanged) { markNowPlaying(); }
+}
+function coverFor(id, hifi) {
+  if (!id || id === 'standby') return 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="#0a0e18" width="100" height="100"/><text fill="#2d3a55" font-size="40" x="50" y="62" text-anchor="middle">♪</text></svg>');
+  return hifi ? `/api/hifi/cover?track_id=${encodeURIComponent(id.replace(/^hifi_/, ''))}` : `/media/${id}/cover.jpg?t=${id}`;
+}
+function renderSeek() { $('#seek').value = st.dur ? Math.round(1000 * st.pos / st.dur) : 0; $('#tPos').textContent = fmtT(st.pos); $('#tDur').textContent = fmtT(st.dur); }
+// local progress tick between telemetry packets
+setInterval(() => { if (st.playing && !st.seeking) { st.pos = Math.min(st.dur || Infinity, st.pos + 0.5); renderSeek(); } }, 500);
+async function pollState() { try { const d = await api('/api/state', { quiet: true, timeout: 4000 }); if (!ws || ws.readyState !== 1) applyTelemetry({ ...d, track_id: d.active_video_id, position_s: d.playback_position_s, duration_s: d.duration_seconds, color: d.dominant_color, audio_format: d.format }); } catch (_) {} }
+setInterval(pollState, 5000);
+
+// ---------- transport ----------
+const control = (action, extra = {}) => api('/api/control', { body: { action, ...extra } });
+$('#btnPlay').onclick = () => { st.playing = !st.playing; $('#playIcon').innerHTML = st.playing ? '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>' : '<path d="M8 5v14l11-7z"/>'; control(st.playing ? 'play' : 'pause'); };
+$('#btnNext').onclick = () => api('/api/queue/next', { body: {} }).then(() => toast('Next'));
+$('#btnPrev').onclick = () => api('/api/queue/prev', { body: {} }).then(() => toast('Previous'));
+$('#btnStandby').onclick = () => control('idle').then(() => toast('Standby'));
+$('#seek').addEventListener('input', () => { st.seeking = true; $('#tPos').textContent = fmtT(st.dur * $('#seek').value / 1000); });
+$('#seek').addEventListener('change', () => { const s = st.dur * $('#seek').value / 1000; st.pos = s; control('seek', { seek_seconds: s }).finally(() => setTimeout(() => st.seeking = false, 800)); });
+let volDragging = false, volT;
+$('#vol').addEventListener('input', () => { volDragging = true; $('#volVal').textContent = $('#vol').value + '%'; clearTimeout(volT); volT = setTimeout(() => { const v = +$('#vol').value; control('volume', { value: v }); api('/api/audio/volume', { body: { volume_pct: v }, quiet: true }).catch(() => {}); }, 120); });
+$('#vol').addEventListener('change', () => setTimeout(() => volDragging = false, 1000));
+$('#btnShuffle').onclick = () => api('/api/playback/modes', { body: { shuffle: !st.shuffle } }).then(() => toast('Shuffle ' + (!st.shuffle ? 'on' : 'off')));
+$('#btnRepeat').onclick = () => { const next = { all: 'one', one: 'off', off: 'all' }[st.repeat] || 'all'; api('/api/playback/modes', { body: { repeat: next } }).then(() => toast('Repeat: ' + next)); };
+
+// ---------- queue ----------
+async function loadQueue() {
+  const list = $('#queueList'); let q;
+  try { q = await api('/api/queue', { quiet: true }); } catch (_) { return; }
+  const items = Array.isArray(q) ? q : (q.queue || []);
+  list.innerHTML = '';
+  if (!items.length) return list.append(el('div', { class: 'empty' }, 'Queue is empty'));
+  items.forEach((t, i) => list.append(trackRow(t, { onplay: null, acts: [el('button', { class: 'iconbtn', onclick: e => { e.stopPropagation(); api('/api/queue/remove/' + i, { body: {} }).then(loadQueue); } }, '✕')] })));
+}
+$('#btnClearQueue').onclick = () => api('/api/queue/clear', { body: {} }).then(loadQueue);
+const enqueue = t => api('/api/queue/add', { body: { video_id: t.video_id || ('hifi_' + t.track_id), title: t.title, artist: t.artist, album: t.album, duration: t.duration, thumbnail_url: t.thumbnail_url, source: t.video_id ? 'youtube' : 'hifi', cover_key: t.cover_key } }).then(() => toast('Added to queue'));
+
+function trackRow(t, { onplay, acts = [], sub } = {}) {
+  const id = t.video_id || ('hifi_' + (t.track_id || ''));
+  const isNow = st.trackId && (st.trackId === id || st.trackId === t.track_id || st.trackId === t.video_id);
+  const img = t.thumbnail_url || (t.track_id ? `/api/hifi/cover?track_id=${encodeURIComponent(t.track_id)}` : (t.video_id ? `/media/${t.video_id}/cover.jpg` : null));
+  const row = el('div', { class: 'item' + (isNow ? ' now' : ''), 'data-id': id },
+    img ? el('img', { src: img, loading: 'lazy', onerror: e => { e.target.replaceWith(el('div', { class: 'ph' }, '♪')); } }) : el('div', { class: 'ph' }, '♪'),
+    el('div', { class: 'meta' }, el('div', { class: 't' }, t.title || t.name || 'Untitled'), el('div', { class: 's' }, sub ?? [t.artist, t.album, t.duration, t.format ? `${t.format}${t.bit_depth ? ' ' + t.bit_depth + '-bit' : ''}` : null].filter(Boolean).join(' · '))),
+    el('div', { class: 'acts' }, ...acts));
+  if (onplay) row.addEventListener('click', () => { row.classList.add('now'); onplay(t); });
+  return row;
+}
+function markNowPlaying() { document.querySelectorAll('.item').forEach(r => r.classList.toggle('now', !!st.trackId && (r.dataset.id === st.trackId || r.dataset.id === 'hifi_' + st.trackId))); }
+
+// ---------- YouTube ----------
+const ytIdFrom = s => { const m = s.match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([A-Za-z0-9_-]{11})/) || s.match(/^([A-Za-z0-9_-]{11})$/); return m ? m[1] : null; };
+async function ytSearch() {
+  const q = $('#ytSearch').value.trim(); if (!q) return;
+  const id = ytIdFrom(q);
+  if (id) return castYt({ video_id: id, title: 'YouTube ' + id, artist: '' });
+  const list = $('#ytList'); list.innerHTML = ''; list.append(el('div', { class: 'empty' }, el('span', { class: 'spin' }), ' Searching…'));
+  try {
+    const res = await api('/api/search?q=' + encodeURIComponent(q), { timeout: 25000 });
+    list.innerHTML = '';
+    if (!res.length) return list.append(el('div', { class: 'empty' }, 'No results'));
+    res.forEach(t => list.append(trackRow(t, { onplay: castYt, acts: [el('button', { class: 'iconbtn', onclick: e => { e.stopPropagation(); enqueue(t); } }, '+')] })));
+  } catch (_) { list.innerHTML = '<div class="empty">Search failed</div>'; }
+}
+$('#ytGo').onclick = ytSearch; $('#ytSearch').addEventListener('keydown', e => { if (e.key === 'Enter') { e.target.blur(); ytSearch(); } });
+async function castYt(t) { toast('Casting ' + (t.title || t.video_id)); try { await api('/api/play/' + t.video_id, { body: { title: t.title, artist: t.artist } }); showTab('now'); } catch (_) {} }
+async function loadCached() {
+  const list = $('#cachedList'); let tracks;
+  try { tracks = await api('/api/tracks', { quiet: true }); } catch (_) { return; }
+  list.innerHTML = '';
+  if (!tracks.length) return list.append(el('div', { class: 'empty' }, 'Nothing cached yet'));
+  tracks.forEach(t => list.append(trackRow(t, { onplay: castYt, acts: [el('button', { class: 'iconbtn', onclick: e => { e.stopPropagation(); enqueue(t); } }, '+')] })));
+}
+
+// ---------- Library ----------
+const lib = { loaded: false, tree: null, path: [] };
+async function loadLibrary() {
+  const list = $('#libList');
+  try { lib.tree = await api('/api/hifi/tree', { quiet: true, timeout: 20000 }); lib.loaded = true; } catch (_) { list.innerHTML = '<div class="empty">Library unavailable</div>'; return; }
+  lib.path = []; renderLib();
+}
+function renderCrumbs(extra) {
+  const c = $('#crumbs'); c.innerHTML = '';
+  const parts = [['Artists', () => { lib.path = []; renderLib(); }]];
+  if (lib.path[0]) parts.push([lib.path[0].name, () => { lib.path = [lib.path[0]]; renderLib(); }]);
+  if (lib.path[1]) parts.push([lib.path[1].name, null]);
+  if (extra) parts.push([extra, null]);
+  parts.forEach(([n, fn], i) => { if (i) c.append(' › '); c.append(fn ? el('b', { onclick: fn }, n) : el('span', {}, n)); });
+}
+function renderLib() {
+  const list = $('#libList'); list.innerHTML = ''; renderCrumbs();
+  const artists = (lib.tree && lib.tree.artists) || [];
+  if (!artists.length) return list.append(el('div', { class: 'empty' }, 'Library is empty. Sync a Drive folder from the HUD.'));
+  if (!lib.path.length) {
+    artists.forEach(a => list.append(el('div', { class: 'item', onclick: () => { lib.path = [a]; renderLib(); } }, el('div', { class: 'ph' }, '👤'), el('div', { class: 'meta' }, el('div', { class: 't' }, a.name), el('div', { class: 's' }, `${(a.albums || []).length} albums`)), el('div', { class: 'acts' }, '›'))));
+  } else if (lib.path.length === 1) {
+    (lib.path[0].albums || []).forEach(al => { const first = (al.tracks || [])[0]; list.append(el('div', { class: 'item', onclick: () => { lib.path = [lib.path[0], al]; renderLib(); } }, first ? el('img', { src: `/api/hifi/cover?track_id=${encodeURIComponent(first.track_id)}`, loading: 'lazy', onerror: e => e.target.replaceWith(el('div', { class: 'ph' }, '💿')) }) : el('div', { class: 'ph' }, '💿'), el('div', { class: 'meta' }, el('div', { class: 't' }, al.name), el('div', { class: 's' }, `${(al.tracks || []).length} tracks`)), el('div', { class: 'acts' }, el('button', { class: 'iconbtn', onclick: e => { e.stopPropagation(); playAlbum(al); } }, '▶')))); });
+  } else {
+    (lib.path[1].tracks || []).forEach(t => list.append(trackRow(t, { onplay: playHifi, acts: trackActs(t) })));
+  }
+}
+const trackActs = t => [el('button', { class: 'iconbtn', onclick: e => { e.stopPropagation(); enqueue(t); } }, '+'), el('button', { class: 'iconbtn', onclick: e => { e.stopPropagation(); addToPlaylistSheet(t); } }, '📑')];
+async function playHifi(t) { toast('Playing ' + t.title); try { await api('/api/hifi/play', { body: { track_id: t.track_id } }); showTab('now'); } catch (_) {} }
+async function playAlbum(al) { const ts = al.tracks || []; if (!ts.length) return; await playHifi(ts[0]); for (const t of ts.slice(1)) enqueue(t).catch(() => {}); }
+let libT; $('#libSearch').addEventListener('input', () => { clearTimeout(libT); libT = setTimeout(libSearch, 250); });
+async function libSearch() {
+  const q = $('#libSearch').value.trim(); if (!q) return renderLib();
+  const list = $('#libList'); renderCrumbs('Search');
+  try { const res = await api('/api/hifi/search?q=' + encodeURIComponent(q), { quiet: true }); const tracks = Array.isArray(res) ? res : (res.results || res.tracks || []); list.innerHTML = ''; if (!tracks.length) return list.append(el('div', { class: 'empty' }, 'No matches')); tracks.forEach(t => list.append(trackRow(t, { onplay: playHifi, acts: trackActs(t) }))); } catch (_) {}
+}
+document.querySelectorAll('.chip[data-mix]').forEach(c => c.addEventListener('click', async () => {
+  const mix = c.dataset.mix; const list = $('#libList'); renderCrumbs(c.textContent.trim()); list.innerHTML = '<div class="empty"><span class="spin"></span></div>';
+  try {
+    let tracks;
+    if (mix === 'favorites') { const p = await api('/api/hifi/playlists/favorites', { quiet: true }); tracks = p.tracks || []; }
+    else { const p = await api('/api/hifi/smart_playlist?type=' + mix, { quiet: true }); tracks = p.tracks || []; }
+    list.innerHTML = ''; if (!tracks.length) return list.append(el('div', { class: 'empty' }, 'Nothing here yet'));
+    list.append(el('div', { class: 'row', style: 'padding:6px 0 10px' }, el('button', { class: 'btn sm primary', onclick: async () => { await playHifi(tracks[0]); tracks.slice(1).forEach(t => enqueue(t).catch(() => {})); } }, '▶ Play all')));
+    tracks.forEach(t => list.append(trackRow(t, { onplay: playHifi, acts: trackActs(t) })));
+  } catch (_) { list.innerHTML = '<div class="empty">Unavailable</div>'; }
+}));
+$('#chipLike').onclick = async () => { if (!st.trackId || st.trackId === 'standby') return toast('Play a Hi-Fi track first'); try { const r = await api('/api/hifi/similar/play', { body: { limit: 50 } }); toast(`${r.mix || 'Mix'} · ${(r.queued || 0) + 1} tracks`); showTab('now'); } catch (_) {} };
+$('#chipRadio').onclick = async () => { const a = $('#npArtist').textContent.split(' · ')[0]; if (!st.isHifi || !a) return toast('Play a Hi-Fi track first'); try { const r = await api('/api/hifi/similar/play', { body: { artist: a, limit: 50 } }); toast(`${r.mix || 'Radio'} · ${(r.queued || 0) + 1} tracks`); showTab('now'); } catch (_) {} };
+$('#chipRecent').onclick = async () => {
+  const list = $('#libList'); renderCrumbs('Recently played'); list.innerHTML = '<div class="empty"><span class="spin"></span></div>';
+  try {
+    const h = await api('/api/history?limit=50', { quiet: true }); list.innerHTML = '';
+    if (!h.items.length) return list.append(el('div', { class: 'empty' }, 'Nothing played yet'));
+    h.items.forEach(x => { const t = x.track || { video_id: x.track_id, title: x.title, artist: x.artist }; const ago = agoText(x.ts); list.append(trackRow(t, { onplay: x.is_hifi ? playHifi : castYt, sub: [x.artist, x.album, ago].filter(Boolean).join(' · '), acts: x.is_hifi ? trackActs(t) : [] })); });
+  } catch (_) { list.innerHTML = '<div class="empty">Unavailable</div>'; }
+};
+const agoText = ts => { if (!ts) return ''; const m = Math.floor((Date.now() / 1000 - ts) / 60); if (m < 1) return 'just now'; if (m < 60) return m + ' min ago'; if (m < 1440) return Math.floor(m / 60) + ' h ago'; return Math.floor(m / 1440) + ' d ago'; };
+$('#chipPlaylists').onclick = async () => {
+  const list = $('#libList'); renderCrumbs('Playlists'); list.innerHTML = '';
+  try {
+    const pls = await api('/api/hifi/playlists', { quiet: true }); const arr = Array.isArray(pls) ? pls : (pls.playlists || []);
+    list.append(el('div', { class: 'row', style: 'padding:6px 0 10px' }, el('button', { class: 'btn sm', onclick: async () => { const name = prompt('Playlist name'); if (name) { await api('/api/hifi/playlists', { body: { name } }); $('#chipPlaylists').click(); } } }, '+ New playlist')));
+    if (!arr.length) return list.append(el('div', { class: 'empty' }, 'No playlists'));
+    arr.forEach(p => list.append(el('div', { class: 'item', onclick: () => openPlaylist(p) }, el('div', { class: 'ph' }, '📑'), el('div', { class: 'meta' }, el('div', { class: 't' }, p.name), el('div', { class: 's' }, `${p.track_count ?? (p.tracks || []).length} tracks`)), el('div', { class: 'acts' }, el('button', { class: 'iconbtn', onclick: e => { e.stopPropagation(); api('/api/hifi/playlists/' + encodeURIComponent(p.id || p.name) + '/play', { body: {} }).then(() => showTab('now')); } }, '▶'), el('button', { class: 'iconbtn', onclick: e => { e.stopPropagation(); if (confirm('Delete ' + p.name + '?')) api('/api/hifi/playlists/' + encodeURIComponent(p.id || p.name), { method: 'DELETE' }).then(() => $('#chipPlaylists').click()); } }, '🗑')))));
+  } catch (_) { list.innerHTML = '<div class="empty">Unavailable</div>'; }
+};
+async function openPlaylist(p) {
+  const list = $('#libList'); renderCrumbs(p.name); list.innerHTML = '';
+  const full = await api('/api/hifi/playlists/' + encodeURIComponent(p.id || p.name), { quiet: true }).catch(() => p);
+  (full.tracks || []).forEach((t, i) => list.append(trackRow(t, { onplay: playHifi, acts: [el('button', { class: 'iconbtn', onclick: e => { e.stopPropagation(); api('/api/hifi/playlists/' + encodeURIComponent(p.id || p.name) + '/remove', { body: { track_id: t.track_id, index: i } }).then(() => openPlaylist(p)); } }, '✕')] })));
+}
+async function addToPlaylistSheet(t) {
+  const pls = await api('/api/hifi/playlists', { quiet: true }).catch(() => []); const arr = Array.isArray(pls) ? pls : (pls.playlists || []);
+  const panel = el('div', {}, el('h2', { style: 'margin:0 0 10px;font-size:14px' }, 'Add to playlist'));
+  panel.append(el('button', { class: 'btn', style: 'width:100%;margin-bottom:8px', onclick: async () => { await api('/api/hifi/favorites/toggle', { body: { track: t, track_id: t.track_id } }); toast('Favorites updated'); closeSheet(); } }, '❤️ Favorites'));
+  arr.filter(p => p.id !== 'favorites').forEach(p => panel.append(el('button', { class: 'btn', style: 'width:100%;margin-bottom:8px', onclick: async () => { await api('/api/hifi/playlists/' + encodeURIComponent(p.id || p.name) + '/add', { body: { tracks: [t] } }); toast('Added to ' + p.name); closeSheet(); } }, p.name)));
+  sheet(panel);
+}
+
+// ---------- Settings: audio ----------
+async function loadAudio() {
+  try {
+    const live = await api('/api/audio/live', { quiet: true });
+    const sink = live.pipewire && live.pipewire.sink;
+    $('#audioLive').innerHTML = '';
+    const kv = (k, v) => $('#audioLive').append(el('div', {}, el('b', {}, k), v ?? '—'));
+    kv('Bit-perfect', live.bit_perfect ? '✅ yes' : '— no');
+    kv('Source', live.source && live.source.rate_hz ? `${live.source.format || ''} ${live.source.bit_depth || ''}-bit / ${(live.source.rate_hz / 1000).toFixed(1)} kHz` : '—');
+    kv('PipeWire sink', sink ? `${sink.format || '?'} @ ${sink.rate ? (sink.rate / 1000).toFixed(1) + ' kHz' : '?'}` : 'no sink');
+    kv('DAC', live.dac && live.dac.card ? `${live.dac.card} · ${live.dac.filter || ''} · vol ${live.dac['volume L/R'] || ''}` : (live.dac && Object.keys(live.dac).length ? JSON.stringify(live.dac) : 'not detected'));
+  } catch (_) { $('#audioLive').innerHTML = '<div>audio info unavailable</div>'; }
+  try {
+    const a = await api('/api/audio/settings', { quiet: true }); const box = $('#dacOpts'); box.innerHTML = '';
+    const opts = a.options || {};
+    const DEF = { volume: 0, balance: 0, mute: 'off', filter: 'fir', deemphasis: 'off', 'analog-gain': '0', boost: 'off', channels: 'stereo', ramp: '1/1dB', 'auto-mute': 'off', 'pw-resample-quality': 10, 'pw-dither': 'none', 'pw-keep-awake': 'off', 'pw-hires': 'on' };
+    const cur = { ...DEF, ...(a.settings || {}) };
+    const labels = { filter: ['Interpolation filter', 'ringless = apodising, no pre-ringing'], 'analog-gain': ['Line-out level (dB)', '0 = 2 Vrms, -6 = 1 Vrms'], boost: ['Analogue boost', '+0.8 dB'], deemphasis: ['CD de-emphasis', 'leave off'], channels: ['Channel routing', ''], ramp: ['Volume ramp', 'rate/step'], 'auto-mute': ['Auto-mute', 'after silence'], 'pw-hires': ['Native-rate output', 'S32LE, follows the stream rate'], 'pw-resample-quality': ['Resampler quality', '10 transparent, 14 max'], 'pw-dither': ['Dither', ''], 'pw-keep-awake': ['Keep DAC clocks running', 'no PLL re-lock clicks'], mute: ['Mute', ''] };
+    for (const [key, vals] of Object.entries(opts)) {
+      if (!Array.isArray(vals)) continue;
+      const sel = el('select', { onchange: async e => { await api('/api/audio/settings', { body: { [key]: e.target.value } }); toast(key + ' = ' + e.target.value); loadAudio(); } });
+      vals.forEach(v => sel.append(el('option', { value: v, ...(String(cur[key]) === String(v) ? { selected: '' } : {}) }, String(v))));
+      const [l, s] = labels[key] || [key, ''];
+      box.append(el('div', { class: 'opt' }, el('label', {}, l, el('small', {}, s)), sel));
+    }
+    if (opts.balance) { const r = el('input', { type: 'range', min: opts.balance.min, max: opts.balance.max, step: opts.balance.step, value: cur.balance ?? 0, style: 'max-width:46%' }); let bt; r.addEventListener('input', () => { clearTimeout(bt); bt = setTimeout(() => api('/api/audio/settings', { body: { balance: r.value } }), 300); }); box.append(el('div', { class: 'opt' }, el('label', {}, 'Balance', el('small', {}, 'L ← → R')), r)); }
+  } catch (_) {}
+}
+$('#btnAudioRefresh').onclick = loadAudio;
+$('#btnBestQuality').onclick = () => api('/api/audio/preset/best-quality', { body: {} }).then(() => { toast('Reference preset applied'); loadAudio(); });
+$('#btnAudioReset').onclick = () => { if (confirm('Reset DAC & PipeWire settings?')) api('/api/audio/reset', { body: {} }).then(() => { toast('Reset'); loadAudio(); }); };
+
+// ---------- Settings: network ----------
+async function loadNetwork() {
+  const box = $('#netStatus'); box.innerHTML = '';
+  try {
+    const n = await api('/api/network/status', { quiet: true });
+    const kv = (k, v) => box.append(el('div', {}, el('b', {}, k), v ?? '—'));
+    if (!n.available) { kv('Network', 'NetworkManager unavailable'); return; }
+    kv('Wi-Fi', n.hotspot ? 'Setup hotspot active' : (n.wifi && n.wifi.ssid ? `${n.wifi.ssid} (${n.wifi.signal}% · ${n.wifi.band})` : 'not connected'));
+    kv('IP', n.ip); kv('Ethernet', n.ethernet ? 'connected' : '—'); kv('Host', n.hostname + '.local');
+    const rd = n.regdomain || {}; kv('5 GHz', rd.five_ghz ? `enabled (${rd.country}, ${rd.adapter_5ghz_channels || '?'} ch)` : `off — no Wi-Fi country (${rd.country || '00'})`);
+    if (n.prefs) { $('#bandPref').value = String(n.prefs.band || '5'); $('#hotspotBand').value = String(n.prefs.hotspot_band || '5'); }
+    $('#btnHotspot').textContent = n.hotspot ? 'Stop hotspot' : 'Setup hotspot'; $('#btnHotspot').dataset.on = n.hotspot ? '1' : '';
+  } catch (_) { box.innerHTML = '<div>network info unavailable</div>'; }
+}
+$('#btnScan').onclick = async () => {
+  const list = $('#netList'); list.innerHTML = '<div class="empty"><span class="spin"></span> Scanning…</div>';
+  try {
+    const r = await api('/api/network/scan', { quiet: true, timeout: 40000 }); list.innerHTML = '';
+    if (!r.networks.length) return list.append(el('div', { class: 'empty' }, 'No networks found'));
+    r.networks.forEach(n => list.append(el('div', { class: 'item', onclick: () => joinNetwork(n) },
+      el('div', { class: 'sig' }, n.signal >= 70 ? '▂▄▆█' : n.signal >= 45 ? '▂▄▆' : n.signal >= 20 ? '▂▄' : '▂'),
+      el('div', { class: 'meta' }, el('div', { class: 't' }, n.ssid), el('div', { class: 's' }, [n.band, n.secured ? '🔒 ' + n.security : 'open', n.saved ? 'saved' : null].filter(Boolean).join(' · '))),
+      el('div', { class: 'acts' }, n.active ? el('span', { class: 'pill green' }, 'CONNECTED') : (n.saved ? el('button', { class: 'iconbtn', onclick: e => { e.stopPropagation(); if (confirm('Forget ' + n.ssid + '?')) api('/api/network/forget', { body: { ssid: n.ssid } }).then(() => $('#btnScan').click()); } }, '🗑') : '')))));
+  } catch (_) { list.innerHTML = '<div class="empty">Scan failed</div>'; }
+};
+function joinNetwork(n) {
+  if (n.active) return;
+  const pw = el('input', { type: 'password', placeholder: n.secured ? 'Password' : 'Open network', autocomplete: 'off' });
+  if (!n.secured || n.saved) pw.style.display = n.saved && n.secured ? '' : 'none';
+  const status = el('div', { class: 'empty', style: 'display:none' });
+  const btn = el('button', { class: 'btn primary', style: 'width:100%;margin-top:10px', onclick: async () => {
+    btn.disabled = true; status.style.display = ''; status.innerHTML = '<span class="spin"></span> Connecting… the phone may drop off if it was on the hotspot';
+    try { const r = await api('/api/network/connect', { body: { ssid: n.ssid, psk: pw.value || null }, timeout: 60000, quiet: true }); if (r.status === 'ok') { toast('Connected to ' + n.ssid + ' · ' + r.ip); closeSheet(); loadNetwork(); } else { status.textContent = '✕ ' + (r.message || 'failed'); btn.disabled = false; } }
+    catch (e) { status.textContent = '✕ ' + e.message; btn.disabled = false; }
+  } }, 'Connect');
+  sheet(el('div', {}, el('h2', { style: 'margin:0 0 4px;font-size:16px' }, n.ssid), el('div', { class: 's', style: 'color:var(--mute);font-size:12px;margin-bottom:12px' }, [n.band, n.security, n.signal + '%'].join(' · ')), pw, n.saved && n.secured ? el('div', { style: 'font-size:11px;color:var(--mute);margin-top:6px' }, 'Saved network — leave blank to reuse the stored password') : '', btn, status));
+}
+$('#bandPref').onchange = e => api('/api/network/prefs', { body: { band: e.target.value }, timeout: 60000 }).then(() => { toast('Band preference saved'); loadNetwork(); });
+$('#hotspotBand').onchange = e => api('/api/network/prefs', { body: { hotspot_band: e.target.value } }).then(() => toast('Hotspot band saved'));
+$('#btnHotspot').onclick = async () => { const on = $('#btnHotspot').dataset.on === '1'; if (!on && !confirm('Start setup hotspot "RoundPlayer-Setup"? Wi-Fi clients will be disconnected.')) return; const r = await api('/api/network/hotspot', { body: { enable: !on }, timeout: 40000 }); toast(r.status === 'ok' ? (r.enabled ? `Hotspot on · password ${r.password}` : 'Hotspot off') : (r.message || 'failed')); loadNetwork(); };
+
+// ---------- Settings: equaliser ----------
+let eqState = {};
+const EQ_BANDS = ['60 Hz', '250 Hz', '1 kHz', '4 kHz', '12 kHz'];
+function sliderRow(label, value, min, max, step, fmt, onEnd) {
+  const r = el('input', { type: 'range', min, max, step, value, style: 'max-width:52%' }); const v = el('small', {}, fmt(value));
+  r.addEventListener('input', () => v.textContent = fmt(+r.value)); r.addEventListener('change', () => onEnd(+r.value));
+  return el('div', { class: 'opt' }, el('label', {}, label, v), r);
+}
+async function loadEq() {
+  try {
+    eqState = await api('/api/audio/eq', { quiet: true });
+    $('#eqEnabled').value = String(!!eqState.enabled); $('#eqLoud').value = String(!!eqState.loudness); $('#eqXf').value = eqState.crossfeed || 'off';
+    const pr = $('#eqPresets'); pr.innerHTML = '';
+    ['flat', 'warm', 'bright', 'bass', 'vocal', 'night'].forEach(p => pr.append(el('span', { class: 'chip' + (eqState.preset === p ? ' active' : ''), onclick: () => postEq({ preset: p }) }, p)));
+    const sl = $('#eqSliders'); sl.innerHTML = '';
+    const db = x => (x > 0 ? '+' : '') + x.toFixed(1) + ' dB';
+    sl.append(sliderRow('Bass', eqState.bass ?? 0, -12, 12, 0.5, db, x => postEq({ ...eqCurrent(), bass: x })));
+    (eqState.bands || [0, 0, 0, 0, 0]).forEach((b, i) => sl.append(sliderRow(EQ_BANDS[i], b, -12, 12, 0.5, db, x => { const bands = [...(eqState.bands || [0, 0, 0, 0, 0])]; bands[i] = x; postEq({ ...eqCurrent(), bands }); })));
+    sl.append(sliderRow('Treble', eqState.treble ?? 0, -12, 12, 0.5, db, x => postEq({ ...eqCurrent(), treble: x })));
+  } catch (_) {}
+  try { const live = await api('/api/audio/live', { quiet: true }); const c = live.boot_check; const box = $('#eqCheck'); if (c) { box.style.display = ''; box.textContent = c.ok ? '✅ DAC verified at boot — registers read back as saved' : '⚠️ DAC check at boot: ' + (c.issues || []).join('; '); box.style.color = c.ok ? 'var(--green)' : 'var(--red)'; } } catch (_) {}
+}
+const eqCurrent = () => ({ enabled: !!eqState.enabled, bass: eqState.bass ?? 0, treble: eqState.treble ?? 0, bands: eqState.bands || [0, 0, 0, 0, 0], loudness: !!eqState.loudness });
+async function postEq(body) { try { await api('/api/audio/eq', { body, timeout: 30000 }); toast('EQ updated'); loadEq(); } catch (_) {} }
+$('#eqEnabled').onchange = e => postEq({ ...eqCurrent(), enabled: e.target.value === 'true' });
+$('#eqLoud').onchange = e => postEq({ ...eqCurrent(), loudness: e.target.value === 'true' });
+$('#eqXf').onchange = e => postEq({ crossfeed: e.target.value });
+
+// ---------- Settings: display ----------
+let dispState = {};
+async function loadDisplay() {
+  try {
+    const d = await api('/api/display', { quiet: true }); dispState = d.settings || {};
+    const sl = $('#dispSliders'); sl.innerHTML = '';
+    sl.append(sliderRow('Brightness', dispState.brightness ?? 1, 0.2, 1, 0.01, x => Math.round(x * 100) + '%', x => postDisplay({ brightness: x })));
+    sl.append(sliderRow('Contrast', dispState.contrast ?? 1, 0.6, 1.4, 0.01, x => (x >= 1 ? '+' : '') + Math.round((x - 1) * 100) + '%', x => postDisplay({ contrast: x })));
+    sl.append(sliderRow('Warmth', dispState.warmth ?? 6500, 2500, 6500, 50, x => Math.round(x) + ' K', x => postDisplay({ warmth: Math.round(x) })));
+    $('#dispNight').value = String(!!dispState.night); $('#nightFrom').value = dispState.night_from || '22:00'; $('#nightTo').value = dispState.night_to || '07:00';
+    const ns = $('#nightSliders'); ns.innerHTML = '';
+    ns.append(sliderRow('Night brightness', dispState.night_brightness ?? 0.45, 0.1, 1, 0.01, x => Math.round(x * 100) + '%', x => postDisplay({ night_brightness: x })));
+    ns.append(sliderRow('Night warmth', dispState.night_warmth ?? 3400, 2000, 6500, 50, x => Math.round(x) + ' K', x => postDisplay({ night_warmth: Math.round(x) })));
+  } catch (_) {}
+}
+async function postDisplay(body) { try { await api('/api/display', { body }); toast('Display updated'); } catch (_) {} }
+$('#dispNight').onchange = e => postDisplay({ night: e.target.value === 'true' });
+$('#nightFrom').onchange = e => postDisplay({ night_from: e.target.value });
+$('#nightTo').onchange = e => postDisplay({ night_to: e.target.value });
+$('#btnDispReset').onclick = () => postDisplay({ brightness: 1, contrast: 1, warmth: 6500 }).then(loadDisplay);
+
+// ---------- Settings: receivers, MQTT, update ----------
+async function loadSources() {
+  try { const r = await api('/api/sources/status', { quiet: true }); const box = $('#srcKv'); box.innerHTML = ''; const kv = (k, v) => box.append(el('div', {}, el('b', {}, k), v)); const st = x => x === 'active' ? '✅ ready' : (x === 'inactive' || x === 'unknown' ? '— not installed' : x); kv('AirPlay', st(r.airplay)); kv('Spotify Connect', st(r.spotify)); kv('Now', r.active ? (r.active === 'airplay' ? 'AirPlay session' : 'Spotify session') : 'idle'); kv('Home Assistant', r.mqtt ? 'enabled' : 'off'); } catch (_) {}
+}
+async function loadMqtt() { try { const s = await api('/api/settings', { quiet: true }); const m = s.mqtt || {}; $('#mqOn').value = String(!!m.enabled); $('#mqHost').value = m.host || ''; $('#mqPort').value = m.port || 1883; $('#mqUser').value = m.username || ''; $('#mqPass').value = m.password || ''; } catch (_) {} }
+$('#btnMqSave').onclick = () => api('/api/settings', { body: { mqtt: { enabled: $('#mqOn').value === 'true', host: $('#mqHost').value.trim(), port: +$('#mqPort').value || 1883, username: $('#mqUser').value, password: $('#mqPass').value, base: 'roundplayer' } } }).then(() => { toast('MQTT saved'); loadSources(); });
+let updT;
+async function loadUpdate() {
+  clearTimeout(updT);
+  try { const u = await api('/api/update/status', { quiet: true }); const box = $('#updKv'); box.innerHTML = ''; const kv = (k, v) => box.append(el('div', {}, el('b', {}, k), v)); kv('Installed', 'v' + u.current_version); kv('State', u.state === 'running' ? '⏳ ' + u.step : (u.state === 'done' ? '✅ ' + u.step : (u.state === 'failed' ? '✕ ' + (u.error || u.step) : 'idle'))); if (document.activeElement !== $('#updUrl')) $('#updUrl').value = u.url || ''; $('#btnUpdBack').disabled = !u.can_rollback; if (u.state === 'running') updT = setTimeout(loadUpdate, 3000); } catch (_) {}
+}
+$('#btnUpdSave').onclick = () => api('/api/settings', { body: { update: { url: $('#updUrl').value.trim() } } }).then(() => { toast('Update URL saved'); loadUpdate(); });
+$('#btnUpdNow').onclick = () => { if (confirm('Download and install the update? The panel restarts at the end (~10 min).')) api('/api/update/start', { body: {}, timeout: 20000 }).then(() => { toast('Update started'); loadUpdate(); }); };
+$('#btnUpdBack').onclick = () => { if (confirm('Roll back to the previous version?')) api('/api/update/rollback', { body: {}, timeout: 20000 }).then(() => { toast('Rolling back'); loadUpdate(); }); };
+
+// ---------- Settings: diagnostics ----------
+async function loadHealth() {
+  try {
+    const h = await api('/api/health', { quiet: true }); const box = $('#healthKv'); box.innerHTML = '';
+    const kv = (k, v) => box.append(el('div', {}, el('b', {}, k), v));
+    kv('Temperature', h.cpu_temp_c != null ? h.cpu_temp_c + ' °C' + (h.throttled && h.throttled !== '0x0' ? ' ⚠ ' + h.throttled : '') : '—');
+    kv('Wi-Fi', h.wifi && h.wifi.ssid ? `${h.wifi.ssid} · ${h.wifi.rssi_dbm} dBm` : '—');
+    kv('Storage', `${h.disk_free_gb} GB free`); kv('Load', (h.load || []).join(' / '));
+    kv('Daemon up', Math.round(h.uptime_s / 60) + ' min'); kv('Panel', h.hud_synced ? '✅ synced' : (h.hud_fresh ? '⚠ differs' : '✕ not reporting'));
+    const l = await api('/api/health/log?n=40', { quiet: true }); $('#healthLog').textContent = (l.lines || []).slice().reverse().join('\n');
+  } catch (_) {}
+}
+$('#btnHealth').onclick = loadHealth;
+
+// ---------- Settings: backup ----------
+async function loadBackup() {
+  const box = $('#backupStatus'); box.innerHTML = '';
+  try { const s = await api('/api/backup/status', { quiet: true }); const kv = (k, v) => box.append(el('div', {}, el('b', {}, k), v)); kv('Local copy', s.local ? new Date(s.local).toLocaleString() : 'none yet'); kv('SD card', s.sdcard ? new Date(s.sdcard).toLocaleString() : 'none yet'); } catch (_) {}
+}
+$('#btnBackupNow').onclick = async () => { try { const r = await api('/api/backup/save', { body: {}, timeout: 30000 }); toast(r.sdcard ? 'Backed up to the SD card' : 'Saved locally · SD card: ' + (r.sdcard_error || 'unavailable')); loadBackup(); } catch (_) {} };
+$('#backupFile').onchange = async e => { const f = e.target.files[0]; if (!f) return; try { const b = JSON.parse(await f.text()); if (!confirm('Restore settings from ' + f.name + '? Audio will restart briefly.')) return; const r = await api('/api/backup/restore', { body: b, timeout: 60000 }); toast('Restored: ' + (r.restored || []).join(', ')); loadAudio(); loadEq(); loadDisplay(); loadPlayerSettings(); } catch (err) { toast('Restore failed: ' + err.message); } e.target.value = ''; };
+
+// ---------- Settings: player ----------
+async function loadPlayerSettings() { try { const s = await api('/api/settings', { quiet: true }); $('#idleTimeout').value = String(s.idle_timeout_seconds ?? 120); $('#loudnorm').value = String(!!s.loudnorm_enabled); $('#clock24').value = String(!!s.clock_24h); $('#ytAudioOnly').value = String(!!s.youtube_audio_only); $('#ytKeep').value = String(!!s.youtube_keep_copy); $('#afterAlbum').value = s.autoplay_similar === false ? 'stop' : 'similar'; } catch (_) {} }
+$('#ytAudioOnly').onchange = e => api('/api/settings', { body: { youtube_audio_only: e.target.value === 'true' } }).then(() => toast('Saved'));
+$('#ytKeep').onchange = e => api('/api/settings', { body: { youtube_keep_copy: e.target.value === 'true' } }).then(() => toast('Saved'));
+$('#clock24').onchange = e => api('/api/settings', { body: { clock_24h: e.target.value === 'true' } }).then(() => toast('Saved'));
+$('#volCeiling').onchange = e => api('/api/settings', { body: { volume_ceiling: +e.target.value } }).then(() => toast('Max volume ' + e.target.value + '%'));
+$('#sleepTimer').onchange = e => api('/api/sleep_timer', { body: { minutes: +e.target.value } }).then(r => toast(r.sleep_at ? 'Sleeps in ' + e.target.value + ' min' : 'Sleep timer off'));
+let alarmCfg = {};
+async function loadAlarm() { try { const s = await api('/api/settings', { quiet: true }); alarmCfg = s.alarm || {}; $('#alarmOn').value = String(!!alarmCfg.enabled); $('#alarmTime').value = alarmCfg.time || '07:30'; const d = alarmCfg.days || [0,1,2,3,4]; $('#alarmDays').value = d.length >= 7 ? 'daily' : (d.length === 2 && d.includes(5) && d.includes(6) ? 'weekend' : 'weekdays'); $('#alarmSource').value = alarmCfg.source || 'last'; $('#alarmVol').value = alarmCfg.volume_pct ?? 45; $('#alarmVolVal').textContent = ($('#alarmVol').value) + '%'; $('#volCeiling').value = String(s.volume_ceiling ?? 100); const st = await api('/api/sleep_timer', { quiet: true }); $('#sleepSub').textContent = st.remaining_s ? 'Sleeps in ' + Math.ceil(st.remaining_s / 60) + ' min' : 'Fades out, then standby'; } catch (_) {} }
+const saveAlarm = patch => api('/api/settings', { body: { alarm: { enabled: false, time: '07:30', days: [0,1,2,3,4], source: 'last', volume_pct: 45, fade_s: 60, ...alarmCfg, ...patch } } }).then(() => { toast('Alarm saved'); loadAlarm(); });
+$('#alarmOn').onchange = e => saveAlarm({ enabled: e.target.value === 'true' });
+$('#alarmTime').onchange = e => saveAlarm({ time: e.target.value });
+$('#alarmDays').onchange = e => saveAlarm({ days: e.target.value === 'daily' ? [0,1,2,3,4,5,6] : (e.target.value === 'weekend' ? [5,6] : [0,1,2,3,4]) });
+$('#alarmSource').onchange = e => saveAlarm({ source: e.target.value });
+$('#alarmVol').addEventListener('input', () => $('#alarmVolVal').textContent = $('#alarmVol').value + '%');
+$('#alarmVol').addEventListener('change', () => saveAlarm({ volume_pct: +$('#alarmVol').value }));
+$('#afterAlbum').onchange = e => api('/api/settings', { body: { autoplay_similar: e.target.value === 'similar' } }).then(() => toast('Saved'));
+$('#idleTimeout').onchange = e => api('/api/settings', { body: { idle_timeout_seconds: +e.target.value } }).then(() => toast('Saved'));
+$('#loudnorm').onchange = e => api('/api/settings', { body: { loudnorm_enabled: e.target.value === 'true' } }).then(() => toast('Saved'));
+$('#btnRestart').onclick = () => { if (confirm('Restart player services?')) api('/api/system/restart-services', { body: {} }).then(() => toast('Restarting…')); };
+$('#btnClearCache').onclick = () => { if (confirm('Delete all cached YouTube videos?')) api('/api/cache/clear', { body: {} }).then(() => { toast('Cache cleared'); loadCached(); }); };
+
+// ---------- boot ----------
+connectWS(); pollState();
+let startTab = 'now'; try { startTab = localStorage.getItem('rp.tab') || 'now'; } catch (_) {}
+showTab(startTab);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { pollState(); if (!ws || ws.readyState > 1) connectWS(); } });
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+</script>
+</body>
+</html>

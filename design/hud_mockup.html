@@ -1,0 +1,179 @@
+<title>Round HUD Redesign</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: an exact 1080x1080 round panel drawn at 50 % (540 px), real pixel values annotated beside each screen. Dark-first single theme - the panel is a black glass disc in a living room. */
+:root{--bg:#0b0d12;--panel:#000;--fg:#eef2f8;--mute:#8f9ab0;--line:rgba(255,255,255,.09);--card:#121622;--accent:#4fd6ff;--gold:#f2c14e;--good:#34d399;--bad:#f87171;
+  --display:"Manrope",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,Menlo,monospace;color-scheme:dark}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 var(--display);padding-block:28px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1180px;margin:0 auto}
+h1{font-size:30px;margin:0 0 6px;letter-spacing:-.02em}h2{font-size:18px;margin:34px 0 10px}p.lead{color:var(--mute);margin:0 0 20px;max-width:68ch}
+.rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:14px 0 8px}
+.rule{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}.rule b{display:block;font-family:var(--mono);font-size:22px;color:var(--accent)}.rule span{color:var(--mute);font-size:13px}
+.screens{display:grid;grid-template-columns:repeat(auto-fill,minmax(540px,1fr));gap:34px 26px;align-items:start;justify-items:center}
+@media (max-width:600px){.screens{grid-template-columns:1fr}}
+figure{margin:0}figcaption{color:var(--mute);font-size:13px;margin-top:10px;max-width:60ch}figcaption b{color:var(--fg)}
+.disc-wrap{width:540px;height:540px;position:relative;margin:0 auto;flex:none}
+.disc{width:1080px;height:1080px;transform:scale(.5);transform-origin:0 0;position:absolute;left:0;top:0;border-radius:50%;background:var(--panel);overflow:hidden;font-family:var(--display);color:#fff}
+@media (max-width:600px){.disc-wrap{width:300px;height:300px}.disc{transform:scale(.2778)}}
+.disc *{box-sizing:border-box}
+/* safe geometry: 1080 disc, center 540. Comfortable content band: radius 0-430. Controls never beyond r=470. */
+.ring{position:absolute;inset:0;border-radius:50%;pointer-events:none}
+.ring.guide{border:2px dashed rgba(79,214,255,.35)}
+.bg-art{position:absolute;inset:0;background:radial-gradient(circle at 50% 42%,#2a3650 0%,#101522 55%,#000 100%)}
+.bg-art::after{content:"";position:absolute;inset:0;background:radial-gradient(circle at center,transparent 52%,rgba(0,0,0,.55) 78%,rgba(0,0,0,.92) 100%)}
+.cover-big{position:absolute;left:180px;top:120px;width:720px;height:720px;border-radius:50%;background:conic-gradient(from 200deg,#2b3f6b,#8a4bd9,#f2c14e,#2b3f6b);filter:saturate(.9)}
+.cover-big::after{content:"";position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle,transparent 60%,rgba(0,0,0,.7) 100%)}
+.title{position:absolute;left:0;right:0;top:128px;text-align:center;padding:0 200px}
+.title .t{font-size:44px;font-weight:800;letter-spacing:-.01em;line-height:1.15;text-shadow:0 2px 18px rgba(0,0,0,.7)}
+.title .a{font-size:28px;color:#c9d2e3;margin-top:6px;font-weight:600}
+.pill{display:inline-flex;align-items:center;gap:10px;padding:8px 18px;border-radius:999px;font-size:22px;font-weight:700;letter-spacing:.06em;border:2px solid rgba(255,255,255,.22);background:rgba(0,0,0,.35);backdrop-filter:blur(8px)}
+.pill.gold{color:var(--gold);border-color:rgba(242,193,78,.6)}.pill.good{color:var(--good);border-color:rgba(52,211,153,.6)}
+.chips{position:absolute;left:0;right:0;top:248px;display:flex;justify-content:center;gap:12px}
+.transport{position:absolute;left:0;right:0;bottom:170px;display:flex;justify-content:center;align-items:center;gap:36px}
+.btn{width:112px;height:112px;border-radius:50%;background:rgba(14,18,28,.72);border:2px solid rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(10px);box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.btn svg{width:48px;height:48px;fill:#fff}.btn.play{width:152px;height:152px;background:var(--accent);border-color:transparent}.btn.play svg{width:68px;height:68px;fill:#061018}
+.seek{position:absolute;left:230px;right:230px;bottom:112px}
+.seek .bar{height:10px;border-radius:5px;background:rgba(255,255,255,.18)}.seek .bar i{display:block;width:38%;height:100%;border-radius:5px;background:var(--accent)}
+.seek .times{display:flex;justify-content:space-between;font-family:var(--mono);font-size:24px;color:#c9d2e3;margin-top:10px}
+.corner{position:absolute;width:112px;height:112px;border-radius:50%;background:rgba(14,18,28,.72);border:2px solid rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:40px}
+.vinyl{position:absolute;left:290px;top:300px;width:500px;height:500px;border-radius:50%;background:repeating-radial-gradient(circle,#101216 0 3px,#1a1d24 3px 5px);box-shadow:0 30px 80px rgba(0,0,0,.8)}
+.vinyl::after{content:"";position:absolute;left:160px;top:160px;width:180px;height:180px;border-radius:50%;background:conic-gradient(from 90deg,#f2c14e,#c08a2b,#f2c14e)}
+.specs{position:absolute;left:0;right:0;top:232px;display:flex;justify-content:center;gap:12px}
+/* list screens */
+.sheet{position:absolute;left:0;right:0;top:0;bottom:0;background:#05070b}
+.hdr{position:absolute;left:0;right:0;top:92px;text-align:center}
+.hdr .eyebrow{font-size:20px;letter-spacing:.2em;color:var(--mute);font-weight:700}.hdr .h{font-size:40px;font-weight:800;margin-top:4px}
+.list{position:absolute;left:180px;right:180px;top:214px;bottom:215px;display:flex;flex-direction:column;gap:12px;overflow:hidden}
+.row{display:flex;align-items:center;gap:22px;height:112px;padding:0 22px;border-radius:24px;background:#121622;border:2px solid rgba(255,255,255,.08)}
+.row.now{border-color:var(--accent);background:rgba(79,214,255,.08)}
+.row .art{width:80px;height:80px;border-radius:14px;background:linear-gradient(135deg,#8a4bd9,#2b3f6b);flex:none}
+.row .m{flex:1;min-width:0}.row .m .t{font-size:30px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.row .m .s{font-size:22px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .act{width:84px;height:84px;border-radius:50%;background:rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center;font-size:40px;flex:none}
+.row.sm{height:92px}.row.sm .m .t{font-size:26px}
+.scrollhint{position:absolute;right:150px;top:330px;bottom:330px;width:8px;border-radius:4px;background:rgba(255,255,255,.1)}.scrollhint i{display:block;height:30%;background:rgba(255,255,255,.35);border-radius:4px}
+.tabs{position:absolute;left:0;right:0;bottom:112px;display:flex;justify-content:center;gap:12px}
+.tab{height:92px;padding:0 26px;border-radius:46px;display:flex;align-items:center;gap:12px;font-size:24px;font-weight:700;background:#121622;border:2px solid rgba(255,255,255,.1);color:var(--mute)}
+.tab.on{color:#fff;border-color:var(--accent);background:rgba(79,214,255,.1)}
+.kbd{position:absolute;left:0;right:0;bottom:168px;display:flex;flex-direction:column;gap:12px;align-items:center}
+.kbd .r{display:flex;gap:10px}.kbd .k{width:72px;height:84px;border-radius:18px;background:#1a1f2d;border:2px solid rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:600}
+.kbd .k.w{width:170px;font-size:24px;color:var(--mute)}
+.field{position:absolute;left:230px;right:230px;top:236px;height:104px;border-radius:26px;border:3px solid var(--accent);background:#0a0e18;display:flex;align-items:center;padding:0 30px;font-size:34px;letter-spacing:.2em;color:#fff}
+.annot{font-family:var(--mono);font-size:12px;color:var(--accent);background:rgba(79,214,255,.08);border:1px solid rgba(79,214,255,.3);border-radius:8px;padding:8px 10px;margin-top:10px;line-height:1.6}
+table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--mute);font-weight:600;font-size:12px;letter-spacing:.08em;text-transform:uppercase}td b{font-family:var(--mono);color:var(--accent);font-weight:600}
+.tbl{overflow-x:auto}
+ol.plan{padding-left:20px;max-width:70ch}ol.plan li{margin:8px 0}ol.plan li b{color:var(--fg)}
+</style>
+
+<div class="wrap">
+<h1>Round HUD redesign</h1>
+<p class="lead">Target: a 5-inch 1080×1080 round panel (≈216 ppi) read from an armchair, 60–90 cm away, operated with a finger. Everything below is drawn at exactly half size; the annotations are real pixels.</p>
+
+<div class="rules">
+  <div class="rule"><b>≥ 96 px</b><span>minimum tap target (≈11 mm). Today's HUD uses 36–48 px — a fingertip covers two of them.</span></div>
+  <div class="rule"><b>≥ 24 px</b><span>minimum readable text at 60–90 cm. Current 10–11 px labels are illegible from a chair.</span></div>
+  <div class="rule"><b>r ≤ 430 px</b><span>content band. Anything outside the inner circle gets cut by the bezel or lands at an awkward angle.</span></div>
+  <div class="rule"><b>4 screens</b><span>Now Playing, Library, Queue, Settings. Today's six modes + five overlays + a radial carousel are the lag and the confusion.</span></div>
+</div>
+
+<h2>Screens</h2>
+<div class="screens">
+
+<figure>
+  <div class="disc-wrap"><div class="disc">
+    <div class="bg-art"></div>
+    <div class="title"><div class="t">Harder, Better, Faster, Stronger</div><div class="a">Daft Punk</div></div>
+    <div class="chips"><span class="pill">1080P</span><span class="pill good">● CASTING</span></div>
+    <div class="transport">
+      <div class="btn"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></div>
+      <div class="btn play"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></div>
+      <div class="btn"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></div>
+    </div>
+    <div class="seek"><div class="bar"><i></i></div><div class="times"><span>1:24</span><span>3:43</span></div></div>
+    <div class="corner" style="left:96px;top:420px">☰</div>
+    <div class="corner" style="right:96px;top:420px">⏻</div>
+    <div class="ring guide" style="inset:110px"></div>
+  </div></div>
+  <figcaption><b>Now Playing (video).</b> Video fills the disc; a soft vignette keeps the edge dark so text sits on black, never on the picture. Title 44 px / artist 28 px at the top of the content band. Three transport buttons 112 / 152 / 112 px with 36 px gaps; seek bar 10 px thick with 24 px mono times. Library (☰) and Standby (⏻) sit on the horizontal diameter where the thumb lands. Tap anywhere else toggles the overlay; double-tap left/right seeks ±10 s (kept).
+  <div class="annot">targets: 112 px round · play 152 px · gaps 36 px · text 24–44 px · dashed ring = r 430 content band</div></figcaption>
+</figure>
+
+<figure>
+  <div class="disc-wrap"><div class="disc">
+    <div class="sheet" style="background:radial-gradient(circle at 50% 60%,#1a1206 0%,#05070b 70%)"></div>
+    <div class="vinyl"></div>
+    <div class="title" style="top:108px"><div class="t">Around the World</div><div class="a">Daft Punk · Homework</div></div>
+    <div class="specs"><span class="pill gold">FLAC 24 / 96</span><span class="pill good">BIT-PERFECT</span></div>
+    <div class="transport" style="bottom:170px">
+      <div class="btn"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></div>
+      <div class="btn play" style="background:var(--gold)"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></div>
+      <div class="btn"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></div>
+    </div>
+    <div class="seek" style="bottom:112px"><div class="bar"><i style="width:61%;background:var(--gold)"></i></div><div class="times"><span>4:02</span><span>7:09</span></div></div>
+    <div class="corner" style="left:96px;top:420px">☰</div>
+    <div class="corner" style="right:96px;top:420px">⏻</div>
+  </div></div>
+  <figcaption><b>Now Playing (Hi-Fi).</b> Same skeleton, gold accent, the vinyl turns slowly (the one animation worth its GPU cost: a rotated image, no blur). The two pills say what the DAC is actually doing — the bit-perfect pill comes from the measured PipeWire rate, not the file tag.
+  <div class="annot">identical control positions in both players → muscle memory</div></figcaption>
+</figure>
+
+<figure>
+  <div class="disc-wrap"><div class="disc">
+    <div class="sheet"></div>
+    <div class="hdr"><div class="eyebrow">DAFT PUNK · HOMEWORK</div><div class="h">10 tracks</div></div>
+    <div class="list">
+      <div class="row now"><div class="art"></div><div class="m"><div class="t">Around the World</div><div class="s">7:09 · FLAC 24/96</div></div><div class="act">▶</div></div>
+      <div class="row"><div class="art"></div><div class="m"><div class="t">Da Funk</div><div class="s">5:28 · FLAC 16/44</div></div><div class="act">+</div></div>
+      <div class="row"><div class="art"></div><div class="m"><div class="t">Phoenix</div><div class="s">4:55 · FLAC 16/44</div></div><div class="act">+</div></div>
+      <div class="row"><div class="art"></div><div class="m"><div class="t">Fresh</div><div class="s">4:03 · FLAC 16/44</div></div><div class="act">+</div></div>
+      <div class="row"><div class="art"></div><div class="m"><div class="t">Revolution 909</div><div class="s">5:34 · FLAC 16/44</div></div><div class="act">+</div></div>
+    </div>
+    <div class="scrollhint"><i></i></div>
+    <div class="tabs"><span class="tab">🔍</span><span class="tab on">Library</span><span class="tab">Queue</span><span class="tab">YouTube</span></div>
+  </div></div>
+  <figcaption><b>Library.</b> One flat list per level (artists → albums → tracks), rows 112 px tall, 30 px titles, 22 px detail, one 84 px action per row. The list is a `ListView.builder` with a fixed row height so scrolling is 60 fps with a thousand tracks. Swipe down from the header to go up a level; no nested drawers, no radial carousel.
+  <div class="annot">rows 112 px · title 30 px · list width 720 px · bottom tabs at y≈920 (chord 790 px)</div></figcaption>
+</figure>
+
+<figure>
+  <div class="disc-wrap"><div class="disc">
+    <div class="sheet"></div>
+    <div class="hdr" style="top:104px"><div class="eyebrow">JOIN NETWORK</div><div class="h">LivingRoom-5G</div></div>
+    <div class="field">••••••••<span style="margin-left:auto;font-size:30px;letter-spacing:0;color:var(--mute)">👁</span></div>
+    <div class="kbd">
+      <div class="r"><span class="k">q</span><span class="k">w</span><span class="k">e</span><span class="k">r</span><span class="k">t</span><span class="k">y</span><span class="k">u</span><span class="k">i</span><span class="k">o</span><span class="k">p</span></div>
+      <div class="r"><span class="k">a</span><span class="k">s</span><span class="k">d</span><span class="k">f</span><span class="k">g</span><span class="k">h</span><span class="k">j</span><span class="k">k</span><span class="k">l</span></div>
+      <div class="r"><span class="k">⇧</span><span class="k">z</span><span class="k">x</span><span class="k">c</span><span class="k">v</span><span class="k">b</span><span class="k">n</span><span class="k">m</span><span class="k">⌫</span></div>
+      <div class="r"><span class="k w">?123</span><span class="k w" style="width:260px">space</span><span class="k w" style="background:var(--accent);color:#061018;font-weight:800">Connect</span></div>
+    </div>
+  </div></div>
+  <figcaption><b>Settings → Network, password entry.</b> Keys 72 × 84 px with 10 px gaps (the city-search keyboard today is 42 px wide). The row fits the r 430 band at its widest. Same keyboard component serves search.
+  <div class="annot">keys 72×84 px · field 104 px · 34 px glyphs · bottom row sits at y≈850 where the chord is still 860 px wide</div></figcaption>
+</figure>
+
+</div>
+
+<h2>Interaction changes that matter more than looks</h2>
+<ol class="plan">
+  <li><b>Four screens, one gesture language.</b> Now Playing · Library · Queue · Settings. Bottom pill tabs (92 px) on list screens; on Now Playing the two diameter buttons. Swipe left/right anywhere = next/previous track; swipe down on a list = back. No more modes that look alike (activePlayer / audiophileDeck / centerpiece / settingsMenu / drawers / carousel).</li>
+  <li><b>Clock is a screensaver, not a mode.</b> After the idle timeout the Now Playing screen dims to the clock as an overlay; one tap brings it back in under 150 ms because nothing is unmounted (the video surface stays live, just hidden).</li>
+  <li><b>Every tap answers instantly.</b> Press state within one frame, the request goes to the daemon after. Rows highlight on touch-down, buttons scale, a 2 px progress line under the header shows "working" instead of a spinner in the middle.</li>
+  <li><b>Buffering is visible and honest.</b> Casting or a Drive track shows "Downloading · 42 %" where the seek bar is, and the previous track keeps playing until the new one is ready.</li>
+  <li><b>Text contrast ≥ 7:1</b> everywhere (white on near-black, muted grey no lighter than #8f9ab0). No 10–11 px labels, no 40 % opacity text.</li>
+  <li><b>Volume</b> is a single ring gesture: drag around the rim of the disc (the one gesture a round screen is uniquely good at). Shown as a thin arc at the edge for 1.5 s, driven by the DAC's own volume register.</li>
+  <li><b>Fewer colours, used consistently.</b> Cyan = YouTube/video, gold = Hi-Fi, green = live/healthy, red = error. The dominant-colour tint from album art stays, but only on the background glow.</li>
+</ol>
+
+<h2>Sizing reference</h2>
+<div class="tbl"><table>
+<tr><th>Element</th><th>Now</th><th>Proposed</th><th>Why</th></tr>
+<tr><td>Primary buttons (play)</td><td>~64 px</td><td><b>152 px</b></td><td>Thumb target from the side of the disc</td></tr>
+<tr><td>Secondary buttons</td><td>36–48 px</td><td><b>112 px</b></td><td>11 mm minimum; 96 px absolute floor</td></tr>
+<tr><td>List rows</td><td>~56 px</td><td><b>112 px</b></td><td>Scrollable with a finger, readable at a metre</td></tr>
+<tr><td>Body text / labels</td><td>10–13 px</td><td><b>24–30 px</b></td><td>Readable at 60–90 cm on 216 ppi</td></tr>
+<tr><td>Title</td><td>22–26 px</td><td><b>44 px</b></td><td>Glanceable across the room</td></tr>
+<tr><td>Keyboard keys</td><td>42×52 px</td><td><b>72×84 px</b></td><td>Typing a Wi-Fi password without errors</td></tr>
+<tr><td>Content band</td><td>ad-hoc</td><td><b>r ≤ 430 px</b></td><td>Nothing clipped by the round bezel</td></tr>
+<tr><td>Modes / overlays</td><td>6 + 5</td><td><b>4 screens + 1 screensaver</b></td><td>Less state, less lag, less to learn</td></tr>
+</table></div>
+</div>

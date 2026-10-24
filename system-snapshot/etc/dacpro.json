@@ -1,0 +1,31 @@
+{
+  "volume": 0.0,
+  "balance": 0.0,
+  "mute": "off",
+  "filter": "fir",
+  "deemphasis": "off",
+  "analog-gain": "0",
+  "boost": "off",
+  "channels": "stereo",
+  "ramp": "1/0.5dB",
+  "auto-mute": "off",
+  "pw-resample-quality": 14,
+  "pw-dither": "none",
+  "pw-keep-awake": "on",
+  "pw-hires": "on",
+  "eq": {
+    "enabled": false,
+    "preset": "custom",
+    "bass": 2.5,
+    "treble": 0.0,
+    "bands": [
+      4.0,
+      2.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "loudness": false,
+    "limiter": false
+  }
+}

@@ -1,0 +1,15 @@
+[Unit]
+Description=Round Media Player - apply saved DAC Pro settings at boot
+After=sound.target alsa-restore.service systemd-udev-settle.service
+Wants=sound.target
+
+[Service]
+Type=oneshot
+Environment=DACPRO_USER=bouncer
+# udev's alsactl restore for the card fires on "add"; give it a moment, then apply ours on top
+ExecStartPre=/bin/sleep 1
+ExecStart=/usr/local/bin/dacpro-ctl apply --with-pipewire
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,99 @@
+#!/bin/bash
+# roundplayer-update - over-the-air update with automatic rollback. Runs as the player user (not root).
+#
+#   roundplayer-update start      download settings.update_url (a .tar.gz of the repo, e.g. a GitHub
+#                                 ".../archive/refs/heads/main.tar.gz"), stage it next to the live copy, compile-check
+#                                 the Python, build the HUD in the staging copy, then swap and restart
+#   roundplayer-update rollback   swap back to the previous version (kept as ~/roundplayer.prev)
+#
+# Progress: /data/update/status.json  {"state": "...", "step": "...", "ts": ..., "version": "...", "error": "..."}
+# Nothing touches the live copy until the staged one has built; a failed step leaves the box exactly as it was.
+set -uo pipefail
+LIVE="$HOME/roundplayer"
+NEXT="$HOME/roundplayer.next"
+PREV="$HOME/roundplayer.prev"
+WORK="/data/update"
+STATUS="$WORK/status.json"
+SETTINGS="/data/roundplayer_settings.json"
+export PATH="$HOME/flutter/bin:$PATH"
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+mkdir -p "$WORK"
+
+status() {  # state step [error]
+  python3 - "$1" "$2" "${3:-}" "$STATUS" <<'PY'
+import json, sys, time
+st, step, err, path = sys.argv[1:5]
+try:
+    d = json.load(open(path))
+except Exception:
+    d = {}
+d.update(state=st, step=step, ts=time.time(), error=err or None)
+json.dump(d, open(path, "w"))
+PY
+}
+fail() { status failed "$1" "$2"; echo "FAILED: $1: $2"; rm -rf "$NEXT"; exit 1; }
+
+restart_all() {
+  sudo -n systemctl restart roundplayer_daemon roundplayer_web roundplayer_dial || true
+  systemctl --user restart round_hud.service || true
+}
+
+case "${1:-}" in
+  start)
+    URL="$(python3 -c "import json; print((json.load(open('$SETTINGS')).get('update') or {}).get('url') or '')" 2>/dev/null)"
+    [ -n "$URL" ] || fail "config" "no update URL set (Settings → System → Software update)"
+    status running "Downloading"
+    rm -rf "$WORK/dl" "$NEXT"; mkdir -p "$WORK/dl"
+    curl -fsSL --max-time 300 "$URL" -o "$WORK/dl/src.tar.gz" || fail "Downloading" "download failed: $URL"
+    tar -xzf "$WORK/dl/src.tar.gz" -C "$WORK/dl" || fail "Unpacking" "not a valid .tar.gz"
+    SRC="$(dirname "$(find "$WORK/dl" -maxdepth 4 -name playback_manager.py -print -quit)")"
+    [ -n "$SRC" ] && [ -f "$SRC/round_hud_app/pubspec.yaml" ] || fail "Unpacking" "archive does not contain a roundplayer tree"
+    status running "Staging"
+    # Start from the live copy (keeps local-only files such as the vendored media_kit patch output), overlay the new tree
+    rsync -a --exclude build/ --exclude .dart_tool/ --exclude __pycache__/ "$LIVE/" "$NEXT/" || fail "Staging" "copy failed"
+    rsync -a --exclude build/ --exclude .dart_tool/ --exclude .git/ "$SRC/" "$NEXT/" || fail "Staging" "overlay failed"
+    NEWVER="$(cat "$NEXT/VERSION" 2>/dev/null || echo unknown)"
+    python3 - "$NEWVER" "$STATUS" <<'PY'
+import json, sys
+p = sys.argv[2]
+d = json.load(open(p)); d["version"] = sys.argv[1]; json.dump(d, open(p, "w"))
+PY
+    status running "Checking Python"
+    for f in "$NEXT"/*.py "$NEXT"/dacpro-ctl "$NEXT"/display-ctl; do
+      [ -f "$f" ] && { python3 -m py_compile "$f" 2>"$WORK/pyerr.txt" || fail "Checking Python" "$(head -3 "$WORK/pyerr.txt")"; }
+    done
+    status running "Building the panel app (about 10 minutes)"
+    ( cd "$NEXT/round_hud_app" && ./tools/vendor_media_kit_video.sh >/dev/null 2>&1; flutter pub get >/dev/null 2>&1; \
+      flutter build linux --release --no-tree-shake-icons > "$WORK/build.log" 2>&1 ) || fail "Building" "$(tail -5 "$WORK/build.log")"
+    status running "Installing"
+    sudo -n /usr/bin/install -m0755 "$NEXT/dacpro-ctl" /usr/local/bin/dacpro-ctl 2>/dev/null || true
+    sudo -n /usr/bin/install -m0755 "$NEXT/display-ctl" /usr/local/bin/display-ctl 2>/dev/null || true
+    rm -rf "$PREV"
+    mv "$LIVE" "$PREV" && mv "$NEXT" "$LIVE" || { [ -d "$PREV" ] && [ ! -d "$LIVE" ] && mv "$PREV" "$LIVE"; fail "Installing" "swap failed"; }
+    status running "Restarting"
+    restart_all
+    # Health gate: the daemon must answer within 60 s, else roll back on our own
+    for i in $(seq 1 30); do
+      sleep 2
+      if curl -fs -m 3 http://127.0.0.1:8000/api/health >/dev/null; then
+        status done "Updated to $NEWVER"
+        echo "updated to $NEWVER"; exit 0
+      fi
+    done
+    status running "New version did not start - rolling back"
+    rm -rf "$NEXT"; mv "$LIVE" "$NEXT" && mv "$PREV" "$LIVE"; rm -rf "$NEXT"
+    restart_all
+    status failed "Rolled back" "the new version's daemon did not start"
+    exit 1
+    ;;
+  rollback)
+    [ -d "$PREV" ] || { status failed "Rollback" "no previous version kept"; exit 1; }
+    status running "Rolling back"
+    rm -rf "$NEXT"
+    mv "$LIVE" "$NEXT" && mv "$PREV" "$LIVE" && mv "$NEXT" "$PREV"
+    restart_all
+    status done "Rolled back to $(cat "$LIVE/VERSION" 2>/dev/null || echo previous)"
+    ;;
+  *)
+    sed -n '2,12p' "$0"; exit 1 ;;
+esac

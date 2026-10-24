@@ -1,0 +1,12 @@
+[Unit]
+Description=Round Media Player - AirPlay receiver (shairport-sync into PipeWire)
+After=pipewire.service pipewire-pulse.service wireplumber.service
+Wants=pipewire-pulse.service
+
+[Service]
+ExecStart=/usr/bin/shairport-sync -c %h/.config/shairport-sync.conf
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

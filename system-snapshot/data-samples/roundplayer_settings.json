@@ -1,0 +1,42 @@
+{
+  "centerpiece_style": "chronometer",
+  "idle_timeout_seconds": 120,
+  "ambient_brightness": 100,
+  "volume_ceiling": 100,
+  "loudnorm_enabled": false,
+  "selected_city": "London",
+  "custom_lat": 51.5074,
+  "custom_lon": -0.1278,
+  "autoplay_similar": true,
+  "clock_24h": false,
+  "shuffle": true,
+  "repeat": "all",
+  "volume_pct": 100.0,
+  "update": {
+    "url": ""
+  },
+  "youtube_keep_copy": false,
+  "youtube_audio_only": false,
+  "mqtt": {
+    "enabled": false,
+    "host": "",
+    "port": 1883,
+    "username": "",
+    "password": "<redacted>",
+    "base": "roundplayer"
+  },
+  "alarm": {
+    "enabled": false,
+    "time": "07:30",
+    "days": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "source": "last",
+    "volume_pct": 45,
+    "fade_s": 60
+  }
+}

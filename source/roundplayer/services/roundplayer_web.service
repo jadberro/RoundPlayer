@@ -1,0 +1,15 @@
+[Unit]
+Description=Round Media Player - Mobile Web Remote
+After=network.target roundplayer_daemon.service
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__HOME__/roundplayer
+ExecStart=/usr/bin/python3 __HOME__/roundplayer/web_remote.py
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

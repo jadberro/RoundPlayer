@@ -1,0 +1,10 @@
+{
+  "brightness": 1.0,
+  "contrast": 1.0,
+  "warmth": 6500,
+  "night": false,
+  "night_from": "22:00",
+  "night_to": "07:00",
+  "night_brightness": 0.45,
+  "night_warmth": 3400
+}

@@ -1,0 +1,22 @@
+[Unit]
+Description=Round HUD Application (Flutter Kiosk)
+After=graphical-session.target pipewire.service wireplumber.service
+Wants=pipewire.service wireplumber.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+# WAYLAND_DISPLAY / XDG_RUNTIME_DIR are inherited from the labwc session via `systemctl --user import-environment`
+# libmpv requires the C numeric locale (segfaults otherwise on a non-C LANG)
+Environment=LC_ALL=C
+Environment=LANG=C
+# HUD_PERF=1 logs fps/build/raster every 5 s to the journal; HUD_VIDEO_HW=1 re-enables media_kit H/W textures
+Environment=HUD_PERF=0
+LimitNOFILE=65536
+WorkingDirectory=__HOME__/roundplayer/round_hud_app
+ExecStart=__HOME__/roundplayer/round_hud_app/build/linux/arm64/release/bundle/round_hud_app
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

@@ -1,0 +1,10 @@
+{
+  "centerpiece_style": "chronometer",
+  "idle_timeout_seconds": 120,
+  "ambient_brightness": 0.73,
+  "volume_ceiling": 100,
+  "loudnorm_enabled": true,
+  "selected_city": "Glasgow",
+  "custom_lat": 55.86515,
+  "custom_lon": -4.25763
+}

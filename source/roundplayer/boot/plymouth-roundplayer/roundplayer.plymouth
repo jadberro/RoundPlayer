@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=roundplayer
+Description=Round Player boot splash
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/roundplayer
+ScriptFile=/usr/share/plymouth/themes/roundplayer/roundplayer.script

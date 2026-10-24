@@ -1,0 +1,31 @@
+#!/usr/bin/env python3
+"""roundplayer-backup - copy the settings bundle to / from the SD card's boot partition (root; sudoers lets the daemon call it).
+
+  roundplayer-backup put /data/backups/latest.json     -> /boot/firmware/roundplayer-backup.json
+  roundplayer-backup get                               -> prints the bundle on the boot partition (or nothing)
+"""
+import json, os, shutil, sys
+
+DEST = "/boot/firmware/roundplayer-backup.json"
+
+
+def main():
+    a = sys.argv[1:]
+    if len(a) == 2 and a[0] == "put":
+        src = a[1]
+        json.load(open(src))   # refuse to copy garbage onto the boot partition
+        tmp = DEST + ".tmp"
+        shutil.copyfile(src, tmp)
+        os.replace(tmp, DEST)
+        os.sync()
+        print(json.dumps({"status": "ok", "path": DEST, "bytes": os.path.getsize(DEST)}))
+        return
+    if a and a[0] == "get":
+        if os.path.exists(DEST):
+            sys.stdout.write(open(DEST).read())
+        return
+    sys.exit(__doc__)
+
+
+if __name__ == "__main__":
+    main()

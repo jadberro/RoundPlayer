@@ -1,0 +1,14 @@
+[Unit]
+Description=Round Media Player - Spotify Connect receiver (librespot into PipeWire)
+After=pipewire.service pipewire-pulse.service wireplumber.service network-online.target
+Wants=pipewire-pulse.service
+
+[Service]
+ExecStart=/usr/bin/librespot --name "Living Room Player" --backend pulseaudio --bitrate 320 --device-type speaker \
+  --initial-volume 100 --enable-volume-normalisation --onevent %h/roundplayer/sources/librespot_event.sh \
+  --cache %h/.cache/librespot --disable-audio-cache
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

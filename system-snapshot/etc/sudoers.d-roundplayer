@@ -1,0 +1,6 @@
+# playback_manager.py drives the DAC and restarts sibling services without a password
+bouncer ALL=(root) NOPASSWD: /usr/local/bin/dacpro-ctl
+bouncer ALL=(root) NOPASSWD: /usr/sbin/iw reg set *, /usr/sbin/rfkill unblock wifi, /usr/sbin/iw * set power_save *
+bouncer ALL=(root) NOPASSWD: /usr/bin/install -m0755 * /usr/local/bin/dacpro-ctl, /usr/bin/install -m0755 * /usr/local/bin/display-ctl, /usr/bin/install -m 0755 * /usr/local/bin/dacpro-ctl, /usr/bin/install -m 0755 * /usr/local/bin/display-ctl
+bouncer ALL=(root) NOPASSWD: /usr/bin/systemctl restart roundplayer_dial roundplayer_web, /usr/bin/systemctl restart roundplayer_dial, /usr/bin/systemctl restart roundplayer_web, /usr/bin/systemctl restart roundplayer_daemon, /usr/bin/systemctl restart roundplayer_daemon roundplayer_web roundplayer_dial
+bouncer ALL=(root) NOPASSWD: /usr/local/bin/roundplayer-backup

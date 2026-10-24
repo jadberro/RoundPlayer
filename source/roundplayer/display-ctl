@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+"""display-ctl - brightness / contrast / warmth for the round HDMI panel (no backlight, no DDC/CI, no KMS gamma LUT).
+
+This tool owns the state (/data/roundplayer_display.json) and the night schedule; the daemon publishes the effective
+values over telemetry and the HUD renders them (multiply overlay for brightness/warmth, colour matrix for contrast).
+
+    display-ctl show
+    display-ctl set brightness 0.7        (0.2 .. 1.0)
+    display-ctl set contrast 1.0          (0.6 .. 1.4, applied as gamma)
+    display-ctl set warmth 6500           (2500 .. 6500 K; lower = warmer)
+    display-ctl set night on|off  night_from 22:00  night_to 07:00  night_brightness 0.4  night_warmth 3400
+    display-ctl apply                     (re-apply, honouring the schedule - run by the daemon every minute)
+"""
+import json, os, signal, subprocess, sys, time
+from datetime import datetime
+
+STATE = "/data/roundplayer_display.json"
+PIDFILE = "/tmp/roundplayer_gammastep.pid"
+USER_UID = os.getuid()
+ENV = dict(os.environ, XDG_RUNTIME_DIR=os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{USER_UID}"),
+           WAYLAND_DISPLAY=os.environ.get("WAYLAND_DISPLAY", "wayland-0"))
+DEFAULTS = {"brightness": 1.0, "contrast": 1.0, "warmth": 6500,
+            "night": False, "night_from": "22:00", "night_to": "07:00", "night_brightness": 0.45, "night_warmth": 3400}
+LIMITS = {"brightness": (0.2, 1.0), "contrast": (0.6, 1.4), "warmth": (2500, 6500), "night_brightness": (0.1, 1.0), "night_warmth": (2000, 6500)}
+
+
+def load():
+    s = dict(DEFAULTS)
+    try:
+        s.update(json.load(open(STATE)))
+    except Exception:
+        pass
+    return s
+
+
+def save(s):
+    tmp = STATE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(s, f, indent=2)
+    os.replace(tmp, STATE)
+
+
+def _in_window(now_hm, start, end):
+    if start <= end:
+        return start <= now_hm < end
+    return now_hm >= start or now_hm < end   # crosses midnight
+
+
+def effective(s):
+    """Values after the night schedule."""
+    out = {"brightness": s["brightness"], "contrast": s["contrast"], "warmth": s["warmth"], "night_active": False}
+    if s.get("night"):
+        now = datetime.now().strftime("%H:%M")
+        if _in_window(now, s.get("night_from", "22:00"), s.get("night_to", "07:00")):
+            out.update(brightness=min(s["brightness"], s["night_brightness"]), warmth=min(s["warmth"], s["night_warmth"]), night_active=True)
+    return out
+
+
+def _kill_old():
+    try:
+        pid = int(open(PIDFILE).read().strip())
+        os.kill(pid, signal.SIGTERM)
+        for _ in range(20):
+            time.sleep(0.05)
+            os.kill(pid, 0)
+    except Exception:
+        pass
+    try:
+        os.remove(PIDFILE)
+    except OSError:
+        pass
+
+
+def _gamma_supported():
+    """wlr-gamma-control needs a KMS gamma LUT; the Pi 4's vc4 HDMI output reports none ("Zero outputs support
+    gamma adjustment"), so by default the HUD renders brightness/contrast/warmth itself from the values the daemon
+    publishes. Set ROUNDPLAYER_GAMMASTEP=1 to try gammastep anyway (e.g. on a different panel/driver)."""
+    return os.environ.get("ROUNDPLAYER_GAMMASTEP") == "1"
+
+
+def apply(s=None):
+    s = s or load()
+    e = effective(s)
+    _kill_old()
+    neutral = abs(e["brightness"] - 1.0) < 0.005 and abs(e["contrast"] - 1.0) < 0.005 and int(e["warmth"]) >= 6500
+    if neutral or not _gamma_supported():
+        return e
+    g = f"{e['contrast']:.2f}"
+    t = str(int(e["warmth"])); b = f"{e['brightness']:.2f}"
+    cmd = ["gammastep", "-m", "wayland", "-l", "0:0", "-t", f"{t}:{t}", "-b", f"{b}:{b}", "-g", f"{g}:{g}:{g}", "-r", "-P"]
+    p = subprocess.Popen(cmd, env=ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    with open(PIDFILE, "w") as f:
+        f.write(str(p.pid))
+    return e
+
+
+def main():
+    a = sys.argv[1:]
+    if not a or a[0] in ("-h", "--help"):
+        print(__doc__); return
+    s = load()
+    if a[0] == "show":
+        print(json.dumps({"settings": s, "effective": effective(s)}, indent=2)); return
+    if a[0] == "apply":
+        print(json.dumps(apply(s))); return
+    if a[0] == "set" and len(a) >= 3 and len(a) % 2 == 1:
+        for k, v in zip(a[1::2], a[2::2]):
+            if k in ("brightness", "contrast", "night_brightness"):
+                lo, hi = LIMITS[k]; s[k] = max(lo, min(hi, float(v)))
+            elif k in ("warmth", "night_warmth"):
+                lo, hi = LIMITS[k]; s[k] = int(max(lo, min(hi, float(v))))
+            elif k == "night":
+                s[k] = v in ("on", "true", "1")
+            elif k in ("night_from", "night_to"):
+                hh, mm = v.split(":"); s[k] = f"{int(hh):02d}:{int(mm):02d}"
+            else:
+                sys.exit(f"unknown option {k}")
+        save(s)
+        print(json.dumps({"settings": s, "effective": apply(s)})); return
+    print(__doc__)
+
+
+if __name__ == "__main__":
+    main()

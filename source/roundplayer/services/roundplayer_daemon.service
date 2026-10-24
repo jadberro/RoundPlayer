@@ -1,0 +1,18 @@
+[Unit]
+Description=Round Media Player - Playback Manager & Telemetry
+After=network.target sound.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__HOME__/roundplayer
+ExecStart=/usr/bin/python3 __HOME__/roundplayer/playback_manager.py
+Restart=always
+RestartSec=3
+# The daemon pings WATCHDOG=1 every 15 s from its event loop; a hung loop gets it restarted
+WatchdogSec=90
+NotifyAccess=all
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
