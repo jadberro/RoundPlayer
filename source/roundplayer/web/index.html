@@ -31,6 +31,8 @@ nav button svg{width:22px;height:22px;fill:currentColor}nav button.active{color:
 .btn.danger{color:var(--red);border-color:rgba(248,113,113,.4)}.btn.gold{color:var(--gold);border-color:rgba(251,191,36,.4)}
 .btn.sm{padding:8px 10px;min-height:36px;font-size:12px;border-radius:10px}
 .btn[disabled]{opacity:.5}
+@keyframes spin{100%{transform:rotate(360deg)}}
+.spin{display:inline-block;animation:spin 1s linear infinite}
 input[type=text],input[type=password],input[type=search]{width:100%;background:#0a0e18;border:1px solid var(--line);color:var(--fg);border-radius:12px;padding:12px 14px;font:inherit;outline:none;min-height:44px}
 input:focus{border-color:var(--accent)}
 input[type=range]{width:100%;accent-color:var(--accent);height:32px}
@@ -104,7 +106,13 @@ select{background:#0a0e18;color:var(--fg);border:1px solid var(--line);border-ra
 <!-- LIBRARY (Hi-Fi) -->
 <section id="tab-lib" class="tab">
   <div class="card" style="margin-top:8px">
-    <input id="libSearch" type="search" placeholder="Search lossless library…" autocomplete="off">
+    <div class="row" style="gap:8px">
+      <input id="libSearch" type="search" placeholder="Search lossless library…" autocomplete="off" style="flex:1">
+      <button class="btn sm" id="btnSyncLib" title="Sync Google Drive library">↻ Sync</button>
+    </div>
+    <div id="syncProgressBanner" class="row" style="display:none;margin-top:10px;padding:8px 12px;background:rgba(0,229,255,.08);border:1px solid rgba(0,229,255,.3);border-radius:10px;font-size:13px;color:var(--accent);align-items:center;gap:8px">
+      <span class="spin" id="syncSpinner">↻</span><span id="syncProgressText" style="flex:1">Scanning Google Drive…</span>
+    </div>
     <div class="chips" style="margin-top:10px">
       <span class="chip" id="chipRecent">🕘 Recent</span>
       <span class="chip" id="chipLike">✨ Like this</span>
@@ -310,6 +318,7 @@ function applyTelemetry(d) {
   if (d.audio_format) { fp.style.display = ''; fp.className = 'pill ' + (st.isHifi ? 'gold' : ''); fp.textContent = st.isHifi ? `${d.audio_format} ${d.bit_depth}/${Math.round((d.sample_rate_hz || 0) / 1000)}k` : d.audio_format; }
   if (d.caching_video_id) { $('#caching').style.display = 'block'; $('#cachingText').textContent = `${d.caching_title || 'Incoming'} — ${d.caching_progress || 'preparing'} ${d.caching_percent || 0}%`; $('#cachingBar').style.width = Math.max(5, d.caching_percent || 0) + '%'; }
   else $('#caching').style.display = 'none';
+  if (d.hifi_sync_status !== undefined) handleSyncStatus(d);
   const cover = coverFor(d.track_id, st.isHifi);
   if (cover !== lastCover) { lastCover = cover; const c = $('#cover'); c.onerror = () => { c.onerror = null; c.src = coverFor(null); }; c.src = cover; }
   if (trackChanged) { markNowPlaying(); }
@@ -388,7 +397,75 @@ async function loadCached() {
 }
 
 // ---------- Library ----------
+let lastSyncStatus = 'idle';
+function handleSyncStatus(d) {
+  const status = d.hifi_sync_status || 'idle';
+  const msg = d.hifi_sync_message || '';
+  const banner = $('#syncProgressBanner');
+  const btn = $('#btnSyncLib');
+  const txt = $('#syncProgressText');
+  const spin = $('#syncSpinner');
+
+  if (status === 'syncing') {
+    if (banner) {
+      banner.style.display = 'flex';
+      banner.style.borderColor = 'rgba(0,229,255,.4)';
+      banner.style.color = 'var(--accent)';
+      if (txt) txt.textContent = msg || 'Scanning Google Drive…';
+      if (spin) { spin.className = 'spin'; spin.textContent = '↻'; }
+    }
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spin">↻</span> Syncing…';
+    }
+  } else {
+    if (lastSyncStatus === 'syncing') {
+      if (status === 'complete') {
+        toast(msg || 'Library updated successfully');
+        loadLibrary();
+      } else if (status === 'error') {
+        toast('✕ ' + (msg || 'Library sync failed'));
+      }
+    }
+    if (banner) {
+      if (status === 'complete') {
+        banner.style.display = 'flex';
+        banner.style.borderColor = 'rgba(16,185,129,.5)';
+        banner.style.color = 'var(--green)';
+        if (txt) txt.textContent = msg || 'Library updated';
+        if (spin) { spin.className = ''; spin.textContent = '✓'; }
+        setTimeout(() => { if (lastSyncStatus !== 'syncing') banner.style.display = 'none'; }, 6000);
+      } else if (status === 'error') {
+        banner.style.display = 'flex';
+        banner.style.borderColor = 'rgba(248,113,113,.5)';
+        banner.style.color = 'var(--red)';
+        if (txt) txt.textContent = msg || 'Sync failed';
+        if (spin) { spin.className = ''; spin.textContent = '✕'; }
+        setTimeout(() => { if (lastSyncStatus !== 'syncing') banner.style.display = 'none'; }, 6000);
+      } else {
+        banner.style.display = 'none';
+      }
+    }
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '↻ Sync';
+    }
+  }
+  lastSyncStatus = status;
+}
+
 const lib = { loaded: false, tree: null, path: [] };
+async function syncLibrary() {
+  toast('Syncing Google Drive library…');
+  try {
+    await api('/api/hifi/sync_drive', { body: {} });
+  } catch (e) {
+    toast('Sync failed: ' + e.message);
+  }
+}
+const syncBtn = $('#btnSyncLib');
+if (syncBtn) syncBtn.onclick = syncLibrary;
+
 async function loadLibrary() {
   const list = $('#libList');
   try { lib.tree = await api('/api/hifi/tree', { quiet: true, timeout: 20000 }); lib.loaded = true; } catch (_) { list.innerHTML = '<div class="empty">Library unavailable</div>'; return; }

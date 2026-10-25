@@ -165,7 +165,7 @@ def async_fetch_covers(gdrive_covers: dict, missing_itunes_covers: list):
 
     threading.Thread(target=_worker, daemon=True).start()
 
-def sync(new_folder_url: str = None) -> dict:
+def sync(new_folder_url: str = None, progress_callback = None) -> dict:
     """
     Scans all configured Google Drive folders using high-speed parallel workers,
     merges track catalog, writes remote_library.json, and returns catalog statistics.
@@ -173,6 +173,22 @@ def sync(new_folder_url: str = None) -> dict:
     start_time = time.time()
     hifi_manager.init_dirs()
     folders = load_drive_folders()
+
+    def notify(msg: str):
+        if progress_callback:
+            try:
+                progress_callback(msg)
+            except Exception:
+                pass
+
+    old_catalog = {}
+    try:
+        old_catalog = hifi_manager.load_raw_catalog() or {}
+    except Exception:
+        pass
+    old_tracks = old_catalog.get("total_tracks", 0)
+    old_albums = old_catalog.get("total_albums", 0)
+    notify("Connecting to Google Drive...")
 
     if new_folder_url:
         new_id = extract_folder_id(new_folder_url)
@@ -227,6 +243,7 @@ def sync(new_folder_url: str = None) -> dict:
                 })
 
         # Step 1: Parallel fetch of Artist folders -> discover Albums
+        notify(f"Scanning {len(direct_artists)} artists in parallel...")
         print(f"[Drive Sync] Crawling {len(direct_artists)} artist folders in parallel...")
         with ThreadPoolExecutor(max_workers=10) as ex:
             future_to_artist = {
@@ -263,6 +280,7 @@ def sync(new_folder_url: str = None) -> dict:
                             })
 
     print(f"[Drive Sync] Discovered {len(albums_to_fetch)} album folders across all artists.")
+    notify(f"Crawling {len(albums_to_fetch)} albums in parallel...")
 
     # Step 2: Parallel fetch of Album folders -> discover Tracks and Covers
     print(f"[Drive Sync] Crawling {len(albums_to_fetch)} albums in parallel...")
@@ -351,6 +369,7 @@ def sync(new_folder_url: str = None) -> dict:
                         })
 
     # Step 4: Assemble unified library catalog
+    notify("Assembling catalog and search index...")
     print("[Drive Sync] Assembling unified library catalog...")
     artists_list = []
     total_albums = 0
@@ -406,7 +425,19 @@ def sync(new_folder_url: str = None) -> dict:
     os.replace(tmp_catalog, hifi_manager.CATALOG_FILE)
 
     elapsed = time.time() - start_time
-    print(f"[Drive Sync] Finished in {elapsed:.2f}s! Indexed {len(artists_list)} artists, {total_albums} albums, {total_tracks} tracks.")
+    added_tracks = max(0, total_tracks - old_tracks)
+    added_albums = max(0, total_albums - old_albums)
+    catalog["added_tracks"] = added_tracks
+    catalog["added_albums"] = added_albums
+    catalog["old_tracks"] = old_tracks
+
+    if added_tracks > 0:
+        summary_msg = f"Library updated · {total_tracks} tracks (+{added_tracks} new)"
+    else:
+        summary_msg = f"Library is up to date · {total_tracks} tracks"
+    notify(summary_msg)
+
+    print(f"[Drive Sync] Finished in {elapsed:.2f}s! Indexed {len(artists_list)} artists, {total_albums} albums, {total_tracks} tracks ({added_tracks} new).")
     print(f"[Drive Sync] Found {len(gdrive_covers)} native Google Drive covers.")
 
     # Instantly notify Round HUD and Web Remote without waiting for covers!

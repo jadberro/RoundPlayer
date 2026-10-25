@@ -277,6 +277,8 @@ runtime_state = {
     "hifi_catalog_version": 1,
     "hifi_sync_status": "idle",
     "hifi_sync_message": "Ready",
+    "hifi_sync_added": 0,
+    "hifi_sync_total": 0,
     "shuffle": False,
     "repeat": "all",
     "volume": 100.0,
@@ -1305,6 +1307,9 @@ async def telemetry_broadcaster_loop():
             "caching_artist": caching_artist,
             "hifi_catalog_version": runtime_state.get("hifi_catalog_version", 1),
             "hifi_sync_status": runtime_state.get("hifi_sync_status", "idle"),
+            "hifi_sync_message": runtime_state.get("hifi_sync_message", "Ready"),
+            "hifi_sync_added": runtime_state.get("hifi_sync_added", 0),
+            "hifi_sync_total": runtime_state.get("hifi_sync_total", 0),
             "shuffle": runtime_state.get("shuffle", False),
             "repeat": runtime_state.get("repeat", "all"),
             "display": runtime_state.get("display"),
@@ -2689,7 +2694,10 @@ async def websocket_telemetry(websocket: WebSocket):
                 "dominant_color": color,
                 "volume": vol,
                 "hifi_catalog_version": runtime_state.get("hifi_catalog_version", 1),
-                "hifi_sync_status": runtime_state.get("hifi_sync_status", "idle")
+                "hifi_sync_status": runtime_state.get("hifi_sync_status", "idle"),
+                "hifi_sync_message": runtime_state.get("hifi_sync_message", "Ready"),
+                "hifi_sync_added": runtime_state.get("hifi_sync_added", 0),
+                "hifi_sync_total": runtime_state.get("hifi_sync_total", 0),
             }
             await websocket.send_json(telemetry)
             await asyncio.sleep(1.0 / 60.0)
@@ -2715,19 +2723,48 @@ def run_background_sync(folder_url: Optional[str] = None):
             return
         runtime_state["hifi_sync_status"] = "syncing"
         runtime_state["hifi_sync_message"] = "Scanning Google Drive folders in parallel..."
+        runtime_state["hifi_sync_added"] = 0
+
+    def on_progress(msg: str):
+        with state_lock:
+            runtime_state["hifi_sync_message"] = msg
+
     try:
         print(f"[Drive Sync] Starting background sync (url: {folder_url or 'default/saved'})...")
-        sync_gdrive.sync(new_folder_url=folder_url)
+        catalog = sync_gdrive.sync(new_folder_url=folder_url, progress_callback=on_progress)
+        total = catalog.get("total_tracks", 0) if isinstance(catalog, dict) else 0
+        added = catalog.get("added_tracks", 0) if isinstance(catalog, dict) else 0
+        summary = (f"Library updated · {total} tracks (+{added} new)"
+                   if added > 0 else f"Library is up to date · {total} tracks")
         with state_lock:
-            runtime_state["hifi_sync_status"] = "ready"
-            runtime_state["hifi_sync_message"] = "Library updated successfully."
+            runtime_state["hifi_sync_status"] = "complete"
+            runtime_state["hifi_sync_message"] = summary
+            runtime_state["hifi_sync_added"] = added
+            runtime_state["hifi_sync_total"] = total
         trigger_catalog_update_broadcast()
-        print("[Drive Sync] Successfully synced and updated library.")
+        print(f"[Drive Sync] Successfully synced and updated library: {summary}")
+
+        def _reset_idle():
+            time.sleep(8)
+            with state_lock:
+                if runtime_state.get("hifi_sync_status") == "complete":
+                    runtime_state["hifi_sync_status"] = "idle"
+                    runtime_state["hifi_sync_message"] = "Ready"
+        threading.Thread(target=_reset_idle, daemon=True).start()
+
     except Exception as e:
         print(f"[Drive Sync Error] {e}")
+        err_msg = str(e)
         with state_lock:
             runtime_state["hifi_sync_status"] = "error"
-            runtime_state["hifi_sync_message"] = str(e)
+            runtime_state["hifi_sync_message"] = f"Sync failed: {err_msg}"
+        def _reset_err():
+            time.sleep(8)
+            with state_lock:
+                if runtime_state.get("hifi_sync_status") == "error":
+                    runtime_state["hifi_sync_status"] = "idle"
+                    runtime_state["hifi_sync_message"] = "Ready"
+        threading.Thread(target=_reset_err, daemon=True).start()
 
 @app.post("/api/hifi/scan")
 async def trigger_hifi_scan():
@@ -3776,6 +3813,8 @@ async def get_hifi_sync_status():
         return {
             "status": runtime_state.get("hifi_sync_status", "idle"),
             "message": runtime_state.get("hifi_sync_message", "Ready"),
+            "added": runtime_state.get("hifi_sync_added", 0),
+            "total": runtime_state.get("hifi_sync_total", 0),
             "catalog_version": runtime_state.get("hifi_catalog_version", 1),
         }
 
