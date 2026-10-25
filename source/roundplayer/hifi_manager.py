@@ -9,6 +9,7 @@ Auto-locates local files on disk for instant zero-delay playback.
 
 import os
 import sys
+import re
 import json
 import time
 import shutil
@@ -16,6 +17,7 @@ import hashlib
 import requests
 import subprocess
 import threading
+from urllib.parse import urljoin
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from collections import defaultdict
@@ -515,6 +517,70 @@ def download_progress(track_id: str) -> Optional[Tuple[int, int]]:
     return (dl.downloaded, dl.total) if dl else None
 
 
+def _open_gdrive_stream(sess: requests.Session, download_url: str) -> requests.Response:
+    """
+    Initiates a streaming GET request to Google Drive, automatically detecting
+    and confirming the large-file virus scan warning form/token if returned.
+    """
+    resp = sess.get(download_url, stream=True, timeout=(15, 60))
+    resp.raise_for_status()
+    ctype = (resp.headers.get("content-type") or "").lower()
+    if "text/html" not in ctype:
+        return resp
+
+    # Google Drive returns an HTML confirmation prompt for files > 100 MB
+    html = resp.text
+    resp.close()
+
+    # Strategy 1: Look for download form with hidden inputs (id, export, confirm, uuid)
+    form_m = re.search(r'<form[^>]+id=["\']download-form["\'][^>]*>(.*?)</form>', html, re.DOTALL | re.IGNORECASE)
+    if not form_m:
+        form_m = re.search(r'<form[^>]+action=["\']([^"\']+)["\'][^>]*>(.*?)</form>', html, re.DOTALL | re.IGNORECASE)
+
+    if form_m:
+        action_m = re.search(r'action=["\']([^"\']+)["\']', form_m.group(0), re.IGNORECASE)
+        action_url = urljoin(download_url, action_m.group(1)) if action_m else download_url
+        params = {}
+        for inp in re.findall(r'<input[^>]+>', form_m.group(0)):
+            name_m = re.search(r'name=["\']([^"\']+)["\']', inp, re.IGNORECASE)
+            val_m = re.search(r'value=["\']([^"\']*)["\']', inp, re.IGNORECASE)
+            if name_m:
+                params[name_m.group(1)] = val_m.group(1) if val_m else ""
+        if params:
+            print(f"[On-Demand Download] Submitting Google Drive confirmation form with params: {list(params.keys())}")
+            resp2 = sess.get(action_url, params=params, stream=True, timeout=(15, 60))
+            resp2.raise_for_status()
+            if "text/html" not in (resp2.headers.get("content-type") or "").lower():
+                return resp2
+            html = resp2.text
+            resp2.close()
+
+    # Strategy 2: Look for <a> tag with confirmation link
+    link_m = re.search(r'<a[^>]+id=["\']uc-download-link["\'][^>]+href=["\']([^"\']+)["\']', html, re.IGNORECASE)
+    if not link_m:
+        link_m = re.search(r'href=["\']([^"\']+[?&]confirm=[^"\']+)["\']', html, re.IGNORECASE)
+    if link_m:
+        link_url = urljoin(download_url, link_m.group(1).replace("&amp;", "&"))
+        print("[On-Demand Download] Following Google Drive confirmation link...")
+        resp2 = sess.get(link_url, stream=True, timeout=(15, 60))
+        resp2.raise_for_status()
+        if "text/html" not in (resp2.headers.get("content-type") or "").lower():
+            return resp2
+        resp2.close()
+
+    # Strategy 3: Check cookies for download_warning token
+    for k, v in sess.cookies.items():
+        if k.startswith("download_warning"):
+            print("[On-Demand Download] Retrying with download_warning cookie confirm token...")
+            resp2 = sess.get(download_url, params={"confirm": v}, stream=True, timeout=(15, 60))
+            resp2.raise_for_status()
+            if "text/html" not in (resp2.headers.get("content-type") or "").lower():
+                return resp2
+            resp2.close()
+
+    raise RuntimeError("Google Drive answered with a web page instead of the file (sharing / quota / virus-scan confirmation could not be resolved)")
+
+
 def _run_download(dl: _Download, track: Dict[str, Any], cached_dest: str) -> None:
     part_dest = cached_dest + ".part"
     file_id = track.get("gdrive_file_id") or track.get("file_id")
@@ -549,7 +615,7 @@ def _run_download(dl: _Download, track: Dict[str, Any], cached_dest: str) -> Non
         sess.headers.update({
             'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         })
-        with sess.get(download_url, stream=True, timeout=(15, 60)) as resp:
+        with _open_gdrive_stream(sess, download_url) as resp:
             resp.raise_for_status()
             ctype = (resp.headers.get("content-type") or "").lower()
             if "text/html" in ctype:
