@@ -1,6 +1,6 @@
 // The contract between the playback engine (main.dart: media_kit player, telemetry, command applier) and the
-// v2 screens. The engine builds a fresh HudView on every setState; the 60 Hz values travel as ValueNotifiers so
-// the transport/seek widgets repaint without rebuilding the tree.
+// v2 screens. The engine builds a fresh HudView on every setState (only when something on screen changed); the
+// fast-moving values travel as ValueNotifiers so the transport/seek widgets repaint without rebuilding the tree.
 import 'package:flutter/material.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
@@ -20,7 +20,7 @@ class HudView {
     required this.isPlaying,
     required this.volume,
     required this.accent,
-    required this.vinylRotation,
+    this.playIntent,
     this.preparingId,
     this.preparingTitle,
     this.preparingArtist,
@@ -74,13 +74,14 @@ class HudView {
   final String audioFormat;
   final int bitDepth;
   final int sampleRateHz;
-  final VideoController videoController;
+  final VideoController? videoController;   // null in widget tests (no libmpv)
   final ValueNotifier<Duration> position;
   final ValueNotifier<Duration> duration;
   final ValueNotifier<bool> isPlaying;
   final ValueNotifier<double> volume;
   final ValueNotifier<Color> accent;
-  final Animation<double> vinylRotation;
+  /// Play/pause the user just asked for, until mpv confirms it (null = none pending). Display only.
+  final ValueNotifier<bool?>? playIntent;
 
   final String? preparingId;
   final String? preparingTitle;

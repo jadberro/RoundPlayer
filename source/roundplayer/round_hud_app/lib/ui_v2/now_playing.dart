@@ -147,7 +147,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
             if (vy > 600) widget.onOpenLibrary();
             if (vy < -600) widget.onOpenSettings?.call();
           },
-          child: video ? Video(controller: v.videoController, fit: BoxFit.cover, controls: NoVideoControls) : _ArtBackdrop(view: v),
+          child: video && v.videoController != null ? Video(controller: v.videoController!, fit: BoxFit.cover, controls: NoVideoControls) : _ArtBackdrop(view: v),
         ),
         // Gradient: dark only where text and controls sit (never blur). On video it only exists while the controls
         // are up - once they hide, the picture is shown untouched (it used to stay, dimming the lower half).
@@ -174,7 +174,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
           Positioned(
             left: 340, right: 340, bottom: 66,
             child: IgnorePointer(
-              child: ValueListenableBuilder<Duration>(
+              child: RepaintBoundary(child: ValueListenableBuilder<Duration>(
                 valueListenable: v.position,
                 builder: (_, pos, __) {
                   final total = v.duration.value.inMilliseconds;
@@ -184,7 +184,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                     FractionallySizedBox(widthFactor: f, child: Container(height: 4, color: Colors.white)),
                   ]);
                 },
-              ),
+              )),
             ),
           ),
         if (_seekFlash != 0)
@@ -253,7 +253,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                     ),
                   ),
                   if (_lyricsOn && hifi && !v.isStandby)
-                    Positioned(left: 140, right: 140, top: 150, height: 380, child: _LyricsPane(key: ValueKey('ly${v.activeId}'), view: v, onMissing: () { if (mounted) setState(() => _lyricsOn = false); })),
+                    Positioned(left: 140, right: 140, top: 150, height: 380, child: RepaintBoundary(child: _LyricsPane(key: ValueKey('ly${v.activeId}'), view: v, onMissing: () { if (mounted) setState(() => _lyricsOn = false); }))),
                   Positioned(
                     left: 180, right: 180, top: 712,
                     child: RichText(
@@ -280,12 +280,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                   child: _Outlined(onTap: () { widget.actions.touch(); widget.onOpenSettings?.call(); }, child: const Icon(Icons.settings_rounded, size: 48, color: T.fg)),
                 ),
 
-                // Seek (bar 790..794, times 806..830) or the preparing line in the same place
+                // Seek (bar 790..794, times 806..830) or the preparing line in the same place. Own layer: position
+                // ticks repaint this band, not the cover under it.
                 Positioned(
                   left: 250, right: 250, top: 772,
-                  child: v.preparingId != null
-                      ? _PreparingLine(view: v, onCancel: widget.actions.cancelPreparing)
-                      : _Seek(view: v, onScrub: (f) => setState(() => _scrubFraction = f), onSeek: (d) { widget.actions.touch(); widget.actions.seekTo(d); setState(() => _scrubFraction = null); }, scrubFraction: _scrubFraction),
+                  child: RepaintBoundary(
+                    child: v.preparingId != null
+                        ? _PreparingLine(view: v, onCancel: widget.actions.cancelPreparing)
+                        : _Seek(view: v, onScrub: (f) => setState(() => _scrubFraction = f), onSeek: (d) { widget.actions.touch(); widget.actions.seekTo(d); setState(() => _scrubFraction = null); }, scrubFraction: _scrubFraction),
+                  ),
                 ),
 
                 // Transport: play 136 px at 860..996, prev/next 112 px (chord at 996 is 2x289)
@@ -297,15 +300,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                     children: [
                       _Outlined(onTap: () { widget.actions.touch(); widget.actions.prev(); }, child: const Icon(Icons.skip_previous_rounded, size: 54, color: T.fg)),
                       const SizedBox(width: 40),
-                      ValueListenableBuilder<bool>(
-                        valueListenable: v.isPlaying,
-                        builder: (_, playing, __) => RoundButton(
-                          size: 136,
-                          fill: Colors.white,
-                          border: Colors.transparent,
-                          onTap: () { widget.actions.touch(); _show(); v.isStandby ? widget.actions.wake() : widget.actions.togglePlay(); },
-                          child: Icon(playing && !v.isStandby ? Icons.pause_rounded : Icons.play_arrow_rounded, size: 70, color: const Color(0xFF070709)),
-                        ),
+                      // Shows the requested state at once (playIntent) until mpv confirms it
+                      ListenableBuilder(
+                        listenable: Listenable.merge([v.isPlaying, if (v.playIntent != null) v.playIntent!]),
+                        builder: (_, _) {
+                          final playing = v.playIntent?.value ?? v.isPlaying.value;
+                          return RoundButton(
+                            size: 136,
+                            fill: Colors.white,
+                            border: Colors.transparent,
+                            onTap: () { widget.actions.touch(); _show(); v.isStandby ? widget.actions.wake() : widget.actions.togglePlay(); },
+                            child: Icon(playing && !v.isStandby ? Icons.pause_rounded : Icons.play_arrow_rounded, size: 70, color: const Color(0xFF070709)),
+                          );
+                        },
                       ),
                       const SizedBox(width: 40),
                       _Outlined(onTap: () { widget.actions.touch(); widget.actions.next(); }, child: const Icon(Icons.skip_next_rounded, size: 54, color: T.fg)),
@@ -316,7 +323,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                 // Volume: lowest band 1002..1046 (chord at 1046 is 2x189 -> 360 wide)
                 Positioned(
                   left: 360, right: 360, top: 1002,
-                  child: _VolumeSlider(view: v, onChange: (x) { widget.actions.touch(); widget.actions.setVolume(x); }),
+                  child: RepaintBoundary(child: _VolumeSlider(view: v, onChange: (x) { widget.actions.touch(); widget.actions.setVolume(x); })),
                 ),
               ],
             ),
@@ -419,14 +426,26 @@ class _FitTitle extends StatelessWidget {
   final TextAlign align;
   final int maxLines;
 
+  // Fitting lays the title out at up to 17 sizes; remember the answer per title (the shell rebuilds on every
+  // telemetry change, the title rarely changes).
+  static final Map<String, double> _fitted = {};
+
   @override
   Widget build(BuildContext context) {
     final t = text.toUpperCase();
-    double size = maxSize;
-    for (double s = maxSize; s >= minSize; s -= 4) {
-      final tp = TextPainter(text: TextSpan(text: t, style: T.title.copyWith(fontSize: s)), textDirection: TextDirection.ltr, maxLines: maxLines)..layout(maxWidth: maxWidth);
-      size = s;
-      if (!tp.didExceedMaxLines) break;
+    final memo = '$t|$maxWidth|$maxSize|$minSize|$maxLines';
+    double? size = _fitted[memo];
+    if (size == null) {
+      size = maxSize;
+      for (double s = maxSize; s >= minSize; s -= 4) {
+        final tp = TextPainter(text: TextSpan(text: t, style: T.title.copyWith(fontSize: s)), textDirection: TextDirection.ltr, maxLines: maxLines)..layout(maxWidth: maxWidth);
+        size = s;
+        final fits = !tp.didExceedMaxLines;
+        tp.dispose();
+        if (fits) break;
+      }
+      if (_fitted.length > 64) _fitted.clear();
+      _fitted[memo] = size!;
     }
     return Text(
       t,
@@ -484,26 +503,23 @@ class _ArtBackdrop extends StatelessWidget {
         : (view.audioOnly && !view.isStandby
             ? 'http://127.0.0.1:8000/media/${view.activeId}/cover.jpg'
             : (view.isHiFi && !view.isStandby ? 'http://127.0.0.1:8000/api/hifi/cover?track_id=hifi_$clean' : null));
+    if (coverUrl != null) {
+      return AnimatedSwitcher(
+        duration: const Duration(milliseconds: 220),
+        // The switcher lays its children out loosely, which let a 600 px cover sit at its native size in the
+        // middle of the disc. Pin it to the full panel so BoxFit.cover scales it edge to edge.
+        layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, if (current != null) current]),
+        child: SizedBox.expand(key: ValueKey(coverUrl), child: Cover(coverUrl, fallbackIcon: Icons.album_rounded)),
+      );
+    }
+    // Only the standby field follows the accent (it fades for 2.4 s on every track change; the cover must not
+    // rebuild with it)
     return ValueListenableBuilder<Color>(
       valueListenable: view.accent,
-      builder: (_, c, __) => Stack(
-        fit: StackFit.expand,
-        children: [
-          if (coverUrl != null)
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 220),
-              // The switcher lays its children out loosely, which let a 600 px cover sit at its native size in the
-              // middle of the disc. Pin it to the full panel so BoxFit.cover scales it edge to edge.
-              layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, if (current != null) current]),
-              child: SizedBox.expand(key: ValueKey(coverUrl), child: Cover(coverUrl, fallbackIcon: Icons.album_rounded)),
-            )
-          else
-            DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(center: const Alignment(0, -0.2), radius: 0.9, colors: [Color.lerp(c, Colors.black, 0.8)!, const Color(0xFF070709)]),
-              ),
-            ),
-        ],
+      builder: (_, c, _) => DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: RadialGradient(center: const Alignment(0, -0.2), radius: 0.9, colors: [Color.lerp(c, Colors.black, 0.8)!, const Color(0xFF070709)]),
+        ),
       ),
     );
   }

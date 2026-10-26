@@ -1245,8 +1245,16 @@ async def start_unix_telemetry_server():
     print(f"[Telemetry] Unix domain socket server listening at {TELEMETRY_SOCK_PATH}")
     return server
 
+# Fields that change on every tick without anything happening; they ride along but never trigger a packet.
+_TELEMETRY_VOLATILE = {"timestamp_us", "beat_phase", "position_s", "sleep_in_s"}
+# Heartbeat while nothing changes: keeps position/sleep countdown fresh. Must stay well under 0.5 s
+# (tests/test_hifi_flow.py check 9 treats a longer gap as a frozen event loop).
+TELEMETRY_HEARTBEAT_S = 0.25
+_telemetry_last_key: Optional[str] = None
+_telemetry_last_sent = 0.0
+
 async def telemetry_broadcaster_loop():
-    """Broadcasts 60 Hz telemetry packets over Unix domain socket and WebSockets."""
+    """Samples state at 60 Hz; broadcasts over the Unix domain socket on change, else at the heartbeat rate."""
     while True:
         t_now = time.time()
         timestamp_us = int(t_now * 1e6)
@@ -1319,16 +1327,23 @@ async def telemetry_broadcaster_loop():
             "video_height": runtime_state.get("video_height"),
         }
 
-        # Broadcast to Unix Socket clients
-        data_bytes = (json.dumps(packet) + "\n").encode()
-        dead_clients = set()
-        for w in list(unix_clients):
-            try:
-                w.write(data_bytes)
-            except Exception:
-                dead_clients.add(w)
-        for d in dead_clients:
-            unix_clients.discard(d)
+        # The state is sampled at 60 Hz so a new command (cmd) still goes out within a frame, but a packet is only
+        # written when something other than the clock-driven fields changed, plus a heartbeat. Decoding 60 JSON
+        # packets a second on the HUD's UI thread was most of its idle CPU.
+        key = json.dumps({k: v for k, v in packet.items() if k not in _TELEMETRY_VOLATILE}, default=str)
+        global _telemetry_last_key, _telemetry_last_sent
+        if key != _telemetry_last_key or t_now - _telemetry_last_sent >= TELEMETRY_HEARTBEAT_S:
+            _telemetry_last_key = key
+            _telemetry_last_sent = t_now
+            data_bytes = (json.dumps(packet) + "\n").encode()
+            dead_clients = set()
+            for w in list(unix_clients):
+                try:
+                    w.write(data_bytes)
+                except Exception:
+                    dead_clients.add(w)
+            for d in dead_clients:
+                unix_clients.discard(d)
 
         await asyncio.sleep(1.0 / 60.0)
 
@@ -2667,6 +2682,7 @@ async def get_color(video_id: str):
 @app.websocket("/ws/telemetry")
 async def websocket_telemetry(websocket: WebSocket):
     await websocket.accept()
+    last_key, last_sent = None, 0.0
     try:
         while True:
             t_now = time.time()
@@ -2699,7 +2715,10 @@ async def websocket_telemetry(websocket: WebSocket):
                 "hifi_sync_added": runtime_state.get("hifi_sync_added", 0),
                 "hifi_sync_total": runtime_state.get("hifi_sync_total", 0),
             }
-            await websocket.send_json(telemetry)
+            key = json.dumps({k: v for k, v in telemetry.items() if k not in _TELEMETRY_VOLATILE}, default=str)
+            if key != last_key or t_now - last_sent >= TELEMETRY_HEARTBEAT_S:
+                last_key, last_sent = key, t_now
+                await websocket.send_json(telemetry)
             await asyncio.sleep(1.0 / 60.0)
     except (WebSocketDisconnect, Exception):
         pass

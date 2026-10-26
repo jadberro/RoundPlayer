@@ -10,6 +10,7 @@ import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'ui_v2/model.dart';
 import 'ui_v2/shell.dart';
+import 'ui_v2/tokens.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -81,27 +82,16 @@ class _CircularHudScreenState extends State<CircularHudScreen>
   late final VideoController _videoController;
 
   // Active Plinth Mode & Previous Mode for Modal Navigation
-  PlinthMode _currentMode = PlinthMode.bootSequence;
+  PlinthMode _currentMode = PlinthMode.centerpiece;   // v2 boots straight into the shell
 
-  // Cinematic Boot Sequence
-  late final AnimationController _bootController;
-
-  // Luxury Idle Chronometer & Inactivity Management
+  // Inactivity Management
   Timer? _inactivityTimer;
-  Timer? _clockTimer;
   int _idleTimeoutSeconds = 120;
 
   // Immersive Media Controls & Touch Gesture State
   bool _areControlsVisible = true;
   Timer? _controlsVisibilityTimer;
   Timer? _seekRippleTimer;
-
-  // Settings Modal State
-
-  // Animation controllers for kick beats and organic liquid wave motion
-  late final AnimationController _beatPulseController;
-  late final AnimationController _waveController;
-  late final AnimationController _secondPulseController;
 
   // Subscriptions for media player state
   StreamSubscription<Duration>? _positionSub;
@@ -110,16 +100,21 @@ class _CircularHudScreenState extends State<CircularHudScreen>
   StreamSubscription<bool>? _completedSub;
 
   // Media Player State Notifiers
+  // mpv reports the position on every audio/video frame; the notifier (seek bar, lyrics) only moves in
+  // _positionStep increments so a Hi-Fi track with a still cover draws ~5 frames a second instead of ~30.
+  // _rawPosition keeps the exact value for the daemon report and relative seeks.
   final ValueNotifier<Duration> _positionNotifier = ValueNotifier<Duration>(Duration.zero);
+  Duration _rawPosition = Duration.zero;
+  static const Duration _positionStep = Duration(milliseconds: 200);
   final ValueNotifier<Duration> _durationNotifier = ValueNotifier<Duration>(const Duration(seconds: 225));
   final ValueNotifier<bool> _isPlayingNotifier = ValueNotifier<bool>(false);
+  // Optimistic play/pause: what the user just asked for, shown on the button until mpv confirms (or 2 s pass).
+  final ValueNotifier<bool?> _playIntentNotifier = ValueNotifier<bool?>(null);
+  Timer? _playIntentTimer;
 
   // WebSocket telemetry
   WebSocketChannel? _telemetryChannel;
   Timer? _reconnectTimer;
-
-  // Real-time telemetry values (Driven via ValueNotifier for 0-allocation 60 FPS repaints)
-  final ValueNotifier<int> _bpmNotifier = ValueNotifier<int>(126);
 
   // Search & Track states
   bool _isSearchOpen = false;
@@ -166,7 +161,7 @@ class _CircularHudScreenState extends State<CircularHudScreen>
   String? _upNextTitle;
   String? _upNextArtist;
   List<String> _castSenders = const [];
-  late final AnimationController _vinylRotationController;
+  String? _precachedNextCover;
   bool _isShuffleEnabled = false;
   RepeatMode _repeatMode = RepeatMode.all;
 
@@ -397,12 +392,6 @@ class _CircularHudScreenState extends State<CircularHudScreen>
     _colorBlendController.forward();
   }
 
-  // True aubio beats.npy tracking
-  List<double> _beatTimestamps = [];
-  double _currentTrackBpm = 103.0;
-  DateTime _lastPositionUpdateTime = DateTime.now();
-  double _lastKnownPositionSec = 0.0;
-
   // Current track state (Default to official motion music video for Daft Punk - Burnin')
   String _currentTrackTitle = "Daft Punk - Burnin' (Official Music Video)";
   String _currentArtist = 'Daft Punk';
@@ -467,30 +456,11 @@ class _CircularHudScreenState extends State<CircularHudScreen>
       configuration: VideoControllerConfiguration(enableHardwareAcceleration: hwVideo),
     );
     _startFrameTimingLog();
-
-    _bootController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 700), // was a 3.2 s fake "calibration" sequence
-    )..addListener(() {
-      setState(() {});
-    });
-
-    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) {
-        setState(() {
-        });
-      }
-    });
-
-    _currentMode = PlinthMode.centerpiece;   // v2 boots straight into the shell
-    _bootController.forward().whenComplete(() {
-      if (mounted) {
-        setState(() {
-          _currentMode = PlinthMode.centerpiece;
-        });
-        _resetInactivityTimer();
-      }
-    });
+    // No boot animation, clock tick or always-running controllers here: any running AnimationController makes
+    // Flutter draw a frame every vsync, and the four that used to loop here (beat pulse, wave, second pulse,
+    // vinyl) had nothing on screen reading them - the panel redrew at 60 fps even on the idle clock. Each widget
+    // that shows time keeps its own timer (Screensaver), and telemetry calls setState when something changed.
+    _resetInactivityTimer();
 
     _colorBlendController = AnimationController(
       vsync: this,
@@ -499,26 +469,6 @@ class _CircularHudScreenState extends State<CircularHudScreen>
       final curved = Curves.easeInOutCubic.transform(_colorBlendController.value);
       _dominantColorNotifier.value = Color.lerp(_fromColor, _targetColor, curved) ?? _targetColor;
     });
-
-    _beatPulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 582), // 103 BPM default
-    )..repeat();
-
-    _waveController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 8000), // 8s smooth continuous liquid flow
-    )..repeat();
-
-    _secondPulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 1), // 1s second pulse
-    )..repeat();
-
-    _vinylRotationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1800), // 33.3 RPM rotation feel
-    );
 
     _setupPlayerListeners();
     _startHudStateReporter();
@@ -535,9 +485,15 @@ class _CircularHudScreenState extends State<CircularHudScreen>
     });
   }
 
-  // Logs average build/raster times and effective FPS every 5 s to stderr (journal) when HUD_PERF=1.
+  // Logs average build/raster times, effective FPS, telemetry packets and the rebuilds they caused every 5 s to
+  // stderr (journal) when HUD_PERF=1. Reported from a timer, so an idle panel shows up as 0 fps instead of silence.
+  static final bool _perf = Platform.environment['HUD_PERF'] == '1';
+  int _perfPackets = 0;
+  int _perfTelemetryRebuilds = 0;
+  Timer? _perfTimer;
+
   void _startFrameTimingLog() {
-    if (Platform.environment['HUD_PERF'] != '1') return;
+    if (!_perf) return;
     int frames = 0;
     double buildMs = 0, rasterMs = 0, worstMs = 0;
     DateTime last = DateTime.now();
@@ -549,13 +505,16 @@ class _CircularHudScreenState extends State<CircularHudScreen>
         final total = t.totalSpan.inMicroseconds / 1000.0;
         if (total > worstMs) worstMs = total;
       }
+    });
+    _perfTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       final now = DateTime.now();
-      final dt = now.difference(last).inMilliseconds;
-      if (dt >= 5000 && frames > 0) {
-        debugPrint('[perf] ${(frames * 1000 / dt).toStringAsFixed(1)} fps  build ${(buildMs / frames).toStringAsFixed(1)} ms  '
-            'raster ${(rasterMs / frames).toStringAsFixed(1)} ms  worst ${worstMs.toStringAsFixed(0)} ms  mode=$_currentMode');
-        frames = 0; buildMs = 0; rasterMs = 0; worstMs = 0; last = now;
-      }
+      final secs = now.difference(last).inMilliseconds / 1000.0;
+      final avg = frames > 0 ? 'build ${(buildMs / frames).toStringAsFixed(1)} ms  raster ${(rasterMs / frames).toStringAsFixed(1)} ms  '
+          'worst ${worstMs.toStringAsFixed(0)} ms' : 'idle';
+      debugPrint('[perf] ${(frames / secs).toStringAsFixed(1)} fps  $avg  telemetry ${(_perfPackets / secs).toStringAsFixed(1)}/s '
+          '($_perfTelemetryRebuilds rebuilds)  mode=$_currentMode');
+      frames = 0; buildMs = 0; rasterMs = 0; worstMs = 0; last = now;
+      _perfPackets = 0; _perfTelemetryRebuilds = 0;
     });
   }
 
@@ -566,7 +525,7 @@ class _CircularHudScreenState extends State<CircularHudScreen>
     _hudStateReportTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
       final payload = jsonEncode({
         'track_id': _activeVideoId,
-        'position_s': (_positionNotifier.value.inMilliseconds / 1000.0),
+        'position_s': (_rawPosition.inMilliseconds / 1000.0),
         'duration_s': (_durationNotifier.value.inMilliseconds / 1000.0),
         'is_playing': _isPlayingNotifier.value,
       });
@@ -626,9 +585,9 @@ class _CircularHudScreenState extends State<CircularHudScreen>
 
   void _setupPlayerListeners() {
     _positionSub = _player.stream.position.listen((pos) {
-      _positionNotifier.value = pos;
-      _lastKnownPositionSec = pos.inMicroseconds / 1000000.0;
-      _lastPositionUpdateTime = DateTime.now();
+      _rawPosition = pos;
+      final shown = _positionNotifier.value;
+      if (pos < shown || pos - shown >= _positionStep) _positionNotifier.value = pos;   // backwards = a seek: show at once
     });
     _durationSub = _player.stream.duration.listen((dur) {
       if (dur > Duration.zero) {
@@ -637,11 +596,8 @@ class _CircularHudScreenState extends State<CircularHudScreen>
     });
     _playingSub = _player.stream.playing.listen((playing) {
       _isPlayingNotifier.value = playing;
+      if (_playIntentNotifier.value == playing) _clearPlayIntent();
       if (playing) {
-        _lastPositionUpdateTime = DateTime.now();
-        if (_isHiFi) {
-          _vinylRotationController.repeat();
-        }
         if (_currentMode == PlinthMode.centerpiece) {
           if (_activeVideoId == 'standby') {
             _player.pause();
@@ -654,9 +610,6 @@ class _CircularHudScreenState extends State<CircularHudScreen>
         }
         _resetControlsVisibilityTimer();
       } else {
-        if (_isHiFi) {
-          _vinylRotationController.stop();
-        }
         _controlsVisibilityTimer?.cancel();
         if (mounted && !_areControlsVisible) {
           setState(() => _areControlsVisible = true);
@@ -693,35 +646,10 @@ class _CircularHudScreenState extends State<CircularHudScreen>
         .catchError((_) => http.Response('', 599));
   }
 
-  Future<void> _fetchBeatsAndColor(String videoId) async {
-    if (videoId.startsWith('hifi_')) {
-      final cleanId = videoId.replaceFirst('hifi_', '');
-      try {
-        final res = await http.get(Uri.parse('http://127.0.0.1:8000/media/hifi/$cleanId/beats')).timeout(const Duration(seconds: 3));
-        if (res.statusCode == 200) {
-          final data = jsonDecode(res.body);
-          final rawBeats = data['beats'] as List? ?? [];
-          _beatTimestamps = rawBeats.map((e) => (e as num).toDouble()).toList();
-          final bpmVal = (data['bpm'] as num?)?.toDouble() ?? 120.0;
-          _currentTrackBpm = bpmVal;
-          _bpmNotifier.value = bpmVal.round();
-        }
-      } catch (_) {}
-      return;
-    }
-
-    try {
-      final res = await http.get(Uri.parse('http://127.0.0.1:8000/media/$videoId/beats')).timeout(const Duration(seconds: 3));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final rawBeats = data['beats'] as List? ?? [];
-        _beatTimestamps = rawBeats.map((e) => (e as num).toDouble()).toList();
-        final bpmVal = (data['bpm'] as num?)?.toDouble() ?? 103.0;
-        _currentTrackBpm = bpmVal;
-        _bpmNotifier.value = bpmVal.round();
-      }
-    } catch (_) {}
-
+  // Hi-Fi colours arrive in telemetry; a YouTube track's dominant colour is fetched once. (The beat grid used to be
+  // fetched here too, for the v1 beat-pulse animation - nothing on the v2 screens reads it.)
+  Future<void> _fetchDominantColor(String videoId) async {
+    if (videoId.startsWith('hifi_')) return;
     try {
       final colorRes = await http.get(Uri.parse('http://127.0.0.1:8000/media/$videoId/dominant_color')).timeout(const Duration(seconds: 2));
       if (colorRes.statusCode == 200) {
@@ -747,7 +675,7 @@ class _CircularHudScreenState extends State<CircularHudScreen>
       await Future.delayed(const Duration(seconds: 1));
     }
     try {
-      _fetchBeatsAndColor(_activeVideoId);
+      _fetchDominantColor(_activeVideoId);
       final initialUrl = 'http://127.0.0.1:8000/media/$_activeVideoId/video.mp4';
       _loadedMediaId = _activeVideoId;
       await _player.open(Media(initialUrl), play: false);
@@ -766,7 +694,8 @@ class _CircularHudScreenState extends State<CircularHudScreen>
     _seekRippleTimer?.cancel();
     _volumeSyncDebounce?.cancel();
     _weatherPollTimer?.cancel();
-    _clockTimer?.cancel();
+    _perfTimer?.cancel();
+    _playIntentTimer?.cancel();
     _searchDebounceTimer?.cancel();
     _citySearchDebounceTimer?.cancel();
     _reconnectTimer?.cancel();
@@ -782,29 +711,31 @@ class _CircularHudScreenState extends State<CircularHudScreen>
     _preparingPollTimer?.cancel();
     _hudStateReportTimer?.cancel();
 
-    _bootController.dispose();
-    _beatPulseController.dispose();
-    _waveController.dispose();
-    _secondPulseController.dispose();
-    _vinylRotationController.dispose();
     _colorBlendController.dispose();
     _player.dispose();
 
     _positionNotifier.dispose();
     _durationNotifier.dispose();
     _isPlayingNotifier.dispose();
+    _playIntentNotifier.dispose();
     _volumeNotifier.dispose();
     _dominantColorNotifier.dispose();
-
-    _bpmNotifier.dispose();
     super.dispose();
   }
 
   void _handleTelemetryJson(String raw) {
+    if (_perf) _perfPackets++;
     try {
       final data = jsonDecode(raw);
       if (data is! Map) return;
-      _bpmNotifier.value = (data['bpm'] as num?)?.toInt() ?? 103;
+      // Fields shown on screen: a packet that changes any of them rebuilds once at the end. (They used to be
+      // assigned silently and picked up by a 1 s full-screen setState tick.)
+      bool changed = false;
+      V upd<V>(V current, V next) {
+        if (current != next) changed = true;
+        return next;
+      }
+
       if (data['color'] != null) {
         final hex = data['color'].toString();
         if (hex.startsWith('#') && hex.length == 7) {
@@ -813,14 +744,9 @@ class _CircularHudScreenState extends State<CircularHudScreen>
       }
 
       if (data['is_hifi'] != null) {
-        _isHiFi = data['is_hifi'] as bool? ?? false;
-        final ao = data['audio_only'] == true;
-        final vh = (data['video_height'] as num?)?.toInt();
-        if (ao != _audioOnly || vh != _videoHeight) {
-          _audioOnly = ao;
-          _videoHeight = vh;
-          if (mounted) setState(() {});
-        }
+        _isHiFi = upd(_isHiFi, data['is_hifi'] as bool? ?? false);
+        _audioOnly = upd(_audioOnly, data['audio_only'] == true);
+        _videoHeight = upd(_videoHeight, (data['video_height'] as num?)?.toInt());
       }
       // The daemon owns the volume (it persists it and applies it to the DAC at boot). Follow it unless the user
       // is mid-drag (a sync post is pending) - that also picks up changes made from the phone remote.
@@ -837,22 +763,22 @@ class _CircularHudScreenState extends State<CircularHudScreen>
         _volumeNotifier.value = dv.clamp(0.0, 100.0);
       }
       if (data['audio_format'] != null) {
-        _audioFormat = data['audio_format'].toString();
+        _audioFormat = upd(_audioFormat, data['audio_format'].toString());
       }
       if (data['bit_depth'] != null) {
-        _bitDepth = (data['bit_depth'] as num?)?.toInt() ?? 16;
+        _bitDepth = upd(_bitDepth, (data['bit_depth'] as num?)?.toInt() ?? 16);
       }
       if (data['sample_rate_hz'] != null) {
-        _sampleRateHz = (data['sample_rate_hz'] as num?)?.toInt() ?? 44100;
+        _sampleRateHz = upd(_sampleRateHz, (data['sample_rate_hz'] as num?)?.toInt() ?? 44100);
       }
       if (data['title'] != null && data['title'].toString().isNotEmpty) {
-        _currentTrackTitle = data['title'].toString();
+        _currentTrackTitle = upd(_currentTrackTitle, data['title'].toString());
       }
       if (data['artist'] != null && data['artist'].toString().isNotEmpty) {
-        _currentArtist = data['artist'].toString();
+        _currentArtist = upd(_currentArtist, data['artist'].toString());
       }
       if (data['album'] != null && data['album'].toString().isNotEmpty) {
-        _currentAlbumName = data['album'].toString();
+        _currentAlbumName = upd(_currentAlbumName, data['album'].toString());
       }
 
       // Live catalog version sync: when GDrive or library changes, auto-refresh catalog
@@ -875,6 +801,7 @@ class _CircularHudScreenState extends State<CircularHudScreen>
           if (_hifiSyncStatus == 'syncing' && newStatus == 'complete') {
             _loadHiFiTree();
           }
+          changed = true;
           _hifiSyncStatus = newStatus;
           _hifiSyncMessage = newMsg;
           _hifiSyncAdded = newAdded;
@@ -883,16 +810,16 @@ class _CircularHudScreenState extends State<CircularHudScreen>
       }
 
       if (data['shuffle'] != null && data['shuffle'] is bool) {
-        _isShuffleEnabled = data['shuffle'] as bool;
+        _isShuffleEnabled = upd(_isShuffleEnabled, data['shuffle'] as bool);
       }
       if (data['repeat'] != null) {
         final rStr = data['repeat'].toString();
         if (rStr == 'one') {
-          _repeatMode = RepeatMode.one;
+          _repeatMode = upd(_repeatMode, RepeatMode.one);
         } else if (rStr == 'all') {
-          _repeatMode = RepeatMode.all;
+          _repeatMode = upd(_repeatMode, RepeatMode.all);
         } else if (rStr == 'off') {
-          _repeatMode = RepeatMode.off;
+          _repeatMode = upd(_repeatMode, RepeatMode.off);
         }
       }
 
@@ -949,14 +876,23 @@ class _CircularHudScreenState extends State<CircularHudScreen>
       final unArtist = un is Map && un['same'] != true ? un['artist']?.toString() : null;
       final cs = (data['cast_senders'] as List?)?.map((e) => e.toString()).toList() ?? const <String>[];
       if (unTitle != _upNextTitle || unArtist != _upNextArtist || cs.join('|') != _castSenders.join('|')) {
-        if (mounted) setState(() { _upNextTitle = unTitle; _upNextArtist = unArtist; _castSenders = cs; });
+        changed = true;
+        _upNextTitle = unTitle; _upNextArtist = unArtist; _castSenders = cs;
       }
       _syncGapless(un is Map ? un : null);
+      // Decode the next Hi-Fi cover now, so a skip (or the gapless boundary) swaps covers without a blank frame.
+      final unId = un is Map ? un['track_id']?.toString() : null;
+      if (unId != null && unId.startsWith('hifi_')) _precacheCover('http://127.0.0.1:8000/api/hifi/cover?track_id=$unId');
       final sl = (data['sleep_in_s'] as num?)?.toDouble();
+      // Only the minute is shown
       if ((sl == null) != (_sleepInS == null) || (sl != null && _sleepInS != null && (sl / 60).ceil() != (_sleepInS! / 60).ceil())) {
-        if (mounted) setState(() => _sleepInS = sl); else _sleepInS = sl;
-      } else {
-        _sleepInS = sl;
+        changed = true;
+      }
+      _sleepInS = sl;
+
+      if (changed && mounted) {
+        if (_perf) _perfTelemetryRebuilds++;
+        setState(() {});
       }
 
       final cmd = data['cmd'];
@@ -1005,12 +941,10 @@ class _CircularHudScreenState extends State<CircularHudScreen>
         case 'play':
           if (_loadedMediaId == null || _activeVideoId == 'standby') return;
           await _enterPlayerModeFor(_loadedMediaId!);
-          if (_isHiFi) _vinylRotationController.repeat();
           await _player.play();
           _resetControlsVisibilityTimer();
           break;
         case 'pause':
-          if (_isHiFi) _vinylRotationController.stop();
           await _player.pause();
           _controlsVisibilityTimer?.cancel();
           if (mounted && !_areControlsVisible) setState(() => _areControlsVisible = true);
@@ -1045,7 +979,7 @@ class _CircularHudScreenState extends State<CircularHudScreen>
 
   Future<void> _applyStop() async {
     _isPlayingNotifier.value = false;
-    if (_isHiFi) _vinylRotationController.stop();
+    _clearPlayIntent();
     _activeVideoId = 'standby';
     _lastTelemetryTrackId = 'standby';
     _preparingVideoId = null;
@@ -1060,6 +994,8 @@ class _CircularHudScreenState extends State<CircularHudScreen>
         _isRadialCarouselOpen = false;
       });
       _resetInactivityTimer();
+    } else if (mounted) {
+      setState(() {});   // standby must reach the screen even when the mode is unchanged
     }
   }
 
@@ -1114,7 +1050,7 @@ class _CircularHudScreenState extends State<CircularHudScreen>
     _loadedMediaId = next;
     _activeVideoId = next;
     if (mounted) setState(() {});
-    _fetchBeatsAndColor(next);
+    _fetchDominantColor(next);
     debugPrint('[gapless] advanced $previous -> $next');
     http.post(Uri.parse('http://127.0.0.1:8000/api/hud/advanced'), headers: {'Content-Type': 'application/json'},
             body: jsonEncode({'track_id': next, 'previous': previous}))
@@ -1137,8 +1073,10 @@ class _CircularHudScreenState extends State<CircularHudScreen>
     try {
       _activeVideoId = trackId;
       _loadedMediaId = trackId;
-      if (mounted && _preparingVideoId == trackId) setState(() => _preparingVideoId = null);
-      _fetchBeatsAndColor(trackId);
+      if (_preparingVideoId == trackId) _preparingVideoId = null;
+      // The new track (cover, kicker) must reach the screen even if the title in telemetry happens not to change
+      if (mounted) setState(() {});
+      _fetchDominantColor(trackId);
       await _enterPlayerModeFor(trackId);
       final hifi = trackId.startsWith('hifi_');
       // A YouTube track that is not cached arrives with a resolved stream URL (an edl:// merging the 1080p H.264
@@ -1162,7 +1100,6 @@ class _CircularHudScreenState extends State<CircularHudScreen>
         }
         await _player.seek(Duration(milliseconds: (position * 1000).round()));
       }
-      if (hifi && play) _vinylRotationController.repeat();
       _resetControlsVisibilityTimer();
     } catch (e) {
       debugPrint('[cmd] load error for $trackId: $e');
@@ -1196,13 +1133,11 @@ class _CircularHudScreenState extends State<CircularHudScreen>
         timeout: const Duration(seconds: 2),
       );
       _telemetrySocket = sock;
-      _socketSub = sock.listen(
-        (data) {
-          final text = utf8.decode(data);
-          for (final line in text.split('\n')) {
-            if (line.trim().isNotEmpty) {
-              _handleTelemetryJson(line);
-            }
+      // Frame on newlines across reads: a packet split between two socket reads used to be dropped as two bad halves.
+      _socketSub = utf8.decoder.bind(sock).transform(const LineSplitter()).listen(
+        (line) {
+          if (line.trim().isNotEmpty) {
+            _handleTelemetryJson(line);
           }
         },
         onError: (_) {
@@ -1475,7 +1410,7 @@ class _CircularHudScreenState extends State<CircularHudScreen>
   /// with a numbered 'load' command (applied in _applyDaemonCommand) which does the actual mpv open.
   Future<void> _switchAndPlay(String videoId) async {
     _activeVideoId = videoId;
-    _fetchBeatsAndColor(videoId);
+    _fetchDominantColor(videoId);
     if (mounted) {
       setState(() {
         _isHiFi = false;
@@ -1487,11 +1422,6 @@ class _CircularHudScreenState extends State<CircularHudScreen>
       final playRes = await http.post(Uri.parse('http://127.0.0.1:8000/api/play/$videoId')).timeout(const Duration(seconds: 3));
       if (playRes.statusCode == 200) {
         final data = jsonDecode(playRes.body);
-        final detectedBpm = (data['bpm'] as num?)?.toDouble();
-        if (detectedBpm != null && detectedBpm > 40 && detectedBpm < 240) {
-          _bpmNotifier.value = detectedBpm.round();
-          _currentTrackBpm = detectedBpm;
-        }
         final hex = data['dominant_color'] as String?;
         if (hex != null && hex.startsWith('#') && hex.length == 7) {
           _smoothTransitionDominantColor(Color(int.parse(hex.replaceFirst('#', '0xFF'))));
@@ -1524,8 +1454,12 @@ class _CircularHudScreenState extends State<CircularHudScreen>
 
   Future<void> _togglePlayPause() async {
     // The HUD only asks; the daemon answers with a numbered play/pause command (~1 frame later) which is the one
-    // thing that touches mpv. One source of truth, no flapping.
-    final wantPlay = !_isPlayingNotifier.value;
+    // thing that touches mpv. One source of truth, no flapping. The button flips at once from _playIntentNotifier
+    // (display only - _isPlayingNotifier and the daemon report stay mpv's real state).
+    final wantPlay = !(_playIntentNotifier.value ?? _isPlayingNotifier.value);
+    _playIntentNotifier.value = wantPlay;
+    _playIntentTimer?.cancel();
+    _playIntentTimer = Timer(const Duration(seconds: 2), _clearPlayIntent);
     try {
       await http.post(
         Uri.parse('http://127.0.0.1:8000/api/control'),
@@ -1534,7 +1468,20 @@ class _CircularHudScreenState extends State<CircularHudScreen>
       ).timeout(const Duration(milliseconds: 1500));
     } catch (e) {
       debugPrint('Error asking daemon to ${wantPlay ? 'play' : 'pause'}: $e');
+      _clearPlayIntent();
     }
+  }
+
+  void _clearPlayIntent() {
+    _playIntentTimer?.cancel();
+    _playIntentTimer = null;
+    _playIntentNotifier.value = null;
+  }
+
+  void _precacheCover(String url) {
+    if (url == _precachedNextCover || !mounted) return;
+    _precachedNextCover = url;
+    precacheImage(Cover.providerFor(url, T.panel, MediaQuery.devicePixelRatioOf(context)), context, onError: (_, _) {});
   }
 
   Future<void> _playNextTrack() async {
@@ -1665,7 +1612,7 @@ class _CircularHudScreenState extends State<CircularHudScreen>
   }
 
   void _seekRelative(int seconds) {
-    final current = _positionNotifier.value;
+    final current = _rawPosition;
     final target = current + Duration(seconds: seconds);
     final clamped = Duration(
       milliseconds: target.inMilliseconds.clamp(0, _durationNotifier.value.inMilliseconds),
@@ -1714,7 +1661,7 @@ class _CircularHudScreenState extends State<CircularHudScreen>
         isPlaying: _isPlayingNotifier,
         volume: _volumeNotifier,
         accent: _dominantColorNotifier,
-        vinylRotation: _vinylRotationController,
+        playIntent: _playIntentNotifier,
         preparingId: _preparingVideoId,
         preparingTitle: _preparingTrackTitle,
         preparingArtist: _preparingTrackArtist,
@@ -1765,7 +1712,7 @@ class _CircularHudScreenState extends State<CircularHudScreen>
         prev: _playPreviousTrack,
         seekTo: (d) => _askSeek(d.inMilliseconds / 1000.0),
         seekBy: (secs) {
-          final target = (_positionNotifier.value.inMilliseconds / 1000.0 + secs).clamp(0.0, _durationNotifier.value.inMilliseconds / 1000.0);
+          final target = (_rawPosition.inMilliseconds / 1000.0 + secs).clamp(0.0, _durationNotifier.value.inMilliseconds / 1000.0);
           _askSeek(target);
         },
         setVolume: _setVolume,
@@ -2037,7 +1984,7 @@ class _CircularHudScreenState extends State<CircularHudScreen>
             _currentMode = PlinthMode.audiophileDeck;
           });
         }
-        _fetchBeatsAndColor('hifi_$cleanId');
+        _fetchDominantColor('hifi_$cleanId');
       }
     } catch (e) {
       debugPrint('[Play Playlist Error] $e');

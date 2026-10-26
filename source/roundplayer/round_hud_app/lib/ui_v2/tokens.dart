@@ -1,5 +1,6 @@
 // Design tokens for the 1080x1080 round panel (read from an armchair at 60-90 cm, operated with a finger).
 // Every size is in panel pixels; the shell scales the whole tree with `s = size / 1080`.
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 class T {
@@ -241,13 +242,28 @@ class TabPill extends StatelessWidget {
   }
 }
 
-/// Cover art with a quiet fallback (no broken-image icon, no spinner). A 404 is retried once after 4 s because the
+/// Cover art with a quiet fallback (no broken-image icon, no spinner). A 404 is retried twice, 4 s apart, because the
 /// daemon may still be fetching the picture (embedded tag / online lookup) when the first request lands.
+///
+/// Decoded at the size it is shown (the daemon serves the original file - embedded art can be 3000 px - so an 80 px
+/// list thumbnail used to hold a 36 MB bitmap). [decodeSize] overrides the layout-derived size.
 class Cover extends StatefulWidget {
-  const Cover(this.url, {super.key, this.fallbackIcon = Icons.album_rounded, this.round = false});
+  const Cover(this.url, {super.key, this.fallbackIcon = Icons.album_rounded, this.round = false, this.decodeSize, this.opacity = 1.0,
+      this.filterQuality = FilterQuality.medium});
   final String? url;
   final IconData fallbackIcon;
   final bool round;
+  final int? decodeSize;            // device pixels on the image's short side; null = from the layout box
+  final double opacity;             // painted with the image (no extra layer)
+  final FilterQuality filterQuality;
+
+  /// The provider a Cover of [logicalSize] uses, so the engine can precache exactly what will be shown.
+  static ImageProvider providerFor(String url, double logicalSize, double devicePixelRatio) =>
+      _provider(url, (logicalSize * devicePixelRatio).ceil());
+
+  // Height only: square art lands exactly on the box, and landscape art (YouTube thumbnails) keeps its full width
+  // for BoxFit.cover. Portrait art (rare) comes out slightly soft. Never upscaled.
+  static ImageProvider _provider(String url, int? size) => size == null ? NetworkImage(url) : ResizeImage(NetworkImage(url), height: size);
 
   @override
   State<Cover> createState() => _CoverState();
@@ -255,28 +271,41 @@ class Cover extends StatefulWidget {
 
 class _CoverState extends State<Cover> {
   int _attempt = 0;
+  bool _retryScheduled = false;
 
   @override
   void didUpdateWidget(covariant Cover old) {
     super.didUpdateWidget(old);
-    if (old.url != widget.url) _attempt = 0;
+    if (old.url != widget.url) { _attempt = 0; _retryScheduled = false; }
   }
 
   @override
   Widget build(BuildContext context) {
-    final fallback = Container(color: T.cardRaised, child: Icon(widget.fallbackIcon, color: T.mute, size: 40));
+    Widget fallback = Container(color: T.cardRaised, child: Icon(widget.fallbackIcon, color: T.mute, size: 40));
+    if (widget.opacity < 1) fallback = Opacity(opacity: widget.opacity, child: fallback);
     final url = widget.url;
     if (url == null || url.isEmpty) return fallback;
     final sep = url.contains('?') ? '&' : '?';
-    return Image.network(
-      _attempt == 0 ? url : '$url${sep}retry=$_attempt',
-      fit: BoxFit.cover,
-      gaplessPlayback: true,
-      errorBuilder: (_, __, ___) {
-        if (_attempt < 2) {
-          Future.delayed(const Duration(seconds: 4), () { if (mounted) setState(() => _attempt += 1); });
-        }
-        return fallback;
+    final src = _attempt == 0 ? url : '$url${sep}retry=$_attempt';
+    return LayoutBuilder(
+      builder: (context, c) {
+        final box = math.max(c.hasBoundedWidth ? c.maxWidth : 0.0, c.hasBoundedHeight ? c.maxHeight : 0.0);
+        final size = widget.decodeSize ?? (box > 0 ? (box * MediaQuery.devicePixelRatioOf(context)).ceil() : null);
+        return Image(
+          image: Cover._provider(src, size),
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          filterQuality: widget.filterQuality,
+          opacity: widget.opacity < 1 ? AlwaysStoppedAnimation(widget.opacity) : null,
+          errorBuilder: (_, _, _) {
+            // errorBuilder runs on every rebuild while in error: schedule one retry at a time
+            if (_attempt < 2 && !_retryScheduled) {
+              _retryScheduled = true;
+              Future.delayed(const Duration(seconds: 4), () { if (mounted) setState(() { _attempt += 1; _retryScheduled = false; }); });
+            }
+            return fallback;
+          },
+        );
       },
     );
   }
