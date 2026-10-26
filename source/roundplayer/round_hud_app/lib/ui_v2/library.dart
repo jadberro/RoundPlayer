@@ -35,6 +35,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   // Queue
   List<Map<String, dynamic>> _queue = [];
+  String _queueBody = '';
   Timer? _queueTimer;
 
   // Search
@@ -125,7 +126,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Future<void> _refreshQueue() async {
     try {
       final r = await http.get(Uri.parse('http://127.0.0.1:8000/api/queue')).timeout(const Duration(seconds: 3));
-      if (r.statusCode == 200 && mounted) {
+      // Polled every 4 s while the tab is open: rebuild only when the queue actually changed
+      if (r.statusCode == 200 && mounted && r.body != _queueBody) {
+        _queueBody = r.body;
         final d = jsonDecode(r.body) as Map;
         setState(() => _queue = (d['queue'] as List? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList());
       }

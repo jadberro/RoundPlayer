@@ -272,23 +272,34 @@ class _HudShellState extends State<HudShell> {
                     ),
                   // Sleep (standby) and idle both show the clock; a tap wakes. From standby the daemon reloads the last track paused.
                   if (_saver || (v.isStandby && !_awakeInStandby)) Screensaver(view: v, standby: v.isStandby, onWake: () { _wake(); if (v.isStandby) widget.actions.wake(); }),
-                  // Display settings (brightness / warmth): the panel has no backlight or gamma table, so the HUD darkens
-                  // and tints its own output with a multiply overlay - no extra layer, one quad per frame.
+                  // Display settings (brightness / warmth / contrast): the panel has no backlight or gamma table, so the
+                  // HUD darkens and tints its own output with full-panel quads blended onto what is already drawn - no
+                  // extra layer. Contrast below neutral is x*c + o, so it folds in here as a modulate by c and an
+                  // add of o (same result as the old colour-matrix layer, which now only runs for contrast > 1).
+                  // modulate == multiply over the opaque panel, and it is a plain coefficient blend on the GPU.
                   if (v.displayFx != null)
                     Positioned.fill(
                       child: IgnorePointer(
                         child: ValueListenableBuilder<Map<String, dynamic>>(
                           valueListenable: v.displayFx!,
-                          builder: (_, fx, __) {
+                          builder: (_, fx, _) {
                             final b = ((fx['brightness'] as num?)?.toDouble() ?? 1.0).clamp(0.05, 1.0);
                             final k = ((fx['warmth'] as num?)?.toDouble() ?? 6500).clamp(1500.0, 6500.0);
+                            final c = contrastOf(fx);
+                            final cm = c < 1 ? c : 1.0;                               // > 1 is the _Contrast layer's job
+                            final o = c < 1 ? (128.0 * (1 - c)).round() : 0;
                             final tint = kelvinTint(k);
-                            if (b >= 0.995 && k >= 6499) return const SizedBox.shrink();
-                            return DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: Color.fromARGB(255, (255 * b * tint[0]).round(), (255 * b * tint[1]).round(), (255 * b * tint[2]).round()),
-                                backgroundBlendMode: BlendMode.multiply,
-                              ),
+                            if (b >= 0.995 && k >= 6499 && cm >= 0.995) return const SizedBox.shrink();
+                            int ch(double t) => (255 * b * t * cm).round();
+                            return Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                DecoratedBox(
+                                  decoration: BoxDecoration(color: Color.fromARGB(255, ch(tint[0]), ch(tint[1]), ch(tint[2])), backgroundBlendMode: BlendMode.modulate),
+                                ),
+                                if (o > 0)
+                                  DecoratedBox(decoration: BoxDecoration(color: Color.fromARGB(255, o, o, o), backgroundBlendMode: BlendMode.plus)),
+                              ],
                             );
                           },
                         ),
@@ -324,20 +335,37 @@ List<double> kelvinTint(double kelvin) {
   return [rr / m, gg / m, bb / m];
 }
 
-/// Contrast as a colour matrix around the whole panel. Only mounted when contrast != 1 (it costs a full-screen layer).
-class _Contrast extends StatelessWidget {
+/// Effective contrast from the daemon's display telemetry; within 1 % of neutral counts as neutral.
+double contrastOf(Map<String, dynamic> fx) {
+  final c = ((fx['contrast'] as num?)?.toDouble() ?? 1.0).clamp(0.3, 2.0);
+  return (c - 1.0).abs() < 0.01 ? 1.0 : c;
+}
+
+/// Contrast above neutral as a colour matrix around the whole panel. It costs a full-screen layer, so it is only
+/// mounted for contrast > 1 (below 1 is done by the display overlay). The panel sits under a GlobalKey: adding or
+/// removing the layer reparents it instead of rebuilding it (that used to reset the video surface, the library's
+/// scroll position and any open sheet whenever contrast crossed neutral).
+class _Contrast extends StatefulWidget {
   const _Contrast({required this.fx, required this.child});
   final ValueNotifier<Map<String, dynamic>>? fx;
   final Widget child;
 
   @override
+  State<_Contrast> createState() => _ContrastState();
+}
+
+class _ContrastState extends State<_Contrast> {
+  final _panelKey = GlobalKey();
+
+  @override
   Widget build(BuildContext context) {
-    if (fx == null) return child;
+    final panel = KeyedSubtree(key: _panelKey, child: widget.child);
+    if (widget.fx == null) return panel;
     return ValueListenableBuilder<Map<String, dynamic>>(
-      valueListenable: fx!,
-      builder: (_, v, __) {
-        final c = ((v['contrast'] as num?)?.toDouble() ?? 1.0).clamp(0.3, 2.0);
-        if ((c - 1.0).abs() < 0.01) return child;
+      valueListenable: widget.fx!,
+      builder: (_, v, child) {
+        final c = contrastOf(v);
+        if (c <= 1.0) return child!;
         final o = 128.0 * (1 - c);
         return ColorFiltered(
           colorFilter: ColorFilter.matrix(<double>[
@@ -349,7 +377,7 @@ class _Contrast extends StatelessWidget {
           child: child,
         );
       },
-      child: child,
+      child: panel,
     );
   }
 }

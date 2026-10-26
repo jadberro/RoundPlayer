@@ -23,7 +23,7 @@ class FakeHud(threading.Thread):
     def run(self):
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.connect(SOCK)
         f = s.makefile("r")
-        last_report = 0
+        last_report = 0; last_tick = time.time()
         for line in f:
             if self.stop: break
             d = json.loads(line)
@@ -40,7 +40,9 @@ class FakeHud(threading.Thread):
                 elif t == "seek": self.pos = cmd.get("position_s") or 0.0
                 elif t == "stop": self.playing = False; self.loaded = None
                 self.applied.append((cmd["seq"], t, cmd.get("track_id"), self.playing, self.pos))
-            if self.playing: self.pos += 1 / 60
+            now = time.time()
+            if self.playing: self.pos += now - last_tick   # wall clock: the daemon sends on change + a 4 Hz heartbeat
+            last_tick = now
             if time.time() - last_report > 0.5:
                 last_report = time.time()
                 try: api("/api/hud/state", {"track_id": self.loaded, "position_s": self.pos, "duration_s": 223.0, "is_playing": self.playing})

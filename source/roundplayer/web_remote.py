@@ -18,7 +18,8 @@ import uvicorn
 PLAYBACK_MANAGER_URL = os.environ.get("PLAYBACK_MANAGER_URL", "http://127.0.0.1:8000")
 TELEMETRY_SOCK = os.environ.get("ROUNDPLAYER_TELEMETRY_SOCK", "/tmp/roundplayer_telemetry.sock")
 WEB_DIR = Path(__file__).resolve().parent / "web"
-TELEMETRY_WS_HZ = 10  # phones don't need 60 Hz; the daemon broadcasts at 60
+TELEMETRY_WS_HZ = 10  # cap for phones; the daemon sends on change (sampled at 60 Hz) plus a 4 Hz heartbeat, so a
+                      # packet dropped here is superseded within 0.25 s
 
 app = FastAPI(title="Round Media Player - Web Remote")
 client = httpx.AsyncClient(base_url=PLAYBACK_MANAGER_URL, timeout=httpx.Timeout(30.0, connect=3.0))

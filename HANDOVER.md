@@ -253,3 +253,12 @@ See `docs/backlog.md`. Top picks: VU-meter / visualiser mode for the round scree
 - Video: the dark gradient now fades out with the controls (it used to dim the lower half permanently).
 - Cast stop: full standby, resume point cleared; daemon issues `stop` at startup so a surviving HUD matches.
 - `install_sources.sh` no longer installs `bs2b-ladspa` (crossfeed uses PipeWire builtins).
+- Panel rendering (2026-10-26, verified on the device): the HUD no longer redraws at 60 fps when nothing moves. Paused on a Hi-Fi track: HUD CPU 82 % → 1 % of a core, 60 → 0.2 fps, SoC 60.8 → 54.5 °C.
+  - Removed four always-running v1 animations (beat pulse, wave, second pulse, vinyl) and the boot animation; nothing on the v2 screens read them.
+  - Removed the 1 s full-screen `setState` tick. Telemetry now rebuilds the shell only when a field on screen changed.
+  - Daemon telemetry: sampled at 60 Hz, sent on change plus a 4 Hz heartbeat (was 60 packets/s). Commands still go out within a frame. The test FakeHuds keep time by wall clock.
+  - Seek bar moves in 200 ms steps, on its own repaint layer. Covers are decoded at display size. The screensaver's blurred cover is a 32 px decode instead of a Gaussian blur layer. Contrast below neutral is folded into the brightness overlay.
+  - Fixes: crossing neutral contrast no longer remounts the panel (video, scroll position, open sheets); cover retries no longer pile up.
+  - Play/pause flips at once (optimistic, display only). The next Hi-Fi cover is precached.
+  - `HUD_PERF=1` logs fps, build/raster times and telemetry packets/rebuilds every 5 s, idle included.
+  - `round_hud_app/test/touch_targets_test.dart` (`flutter test`): every Now Playing tap target is on the glass.
