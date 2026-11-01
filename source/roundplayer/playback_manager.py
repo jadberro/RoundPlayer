@@ -1345,7 +1345,10 @@ async def telemetry_broadcaster_loop():
             for d in dead_clients:
                 unix_clients.discard(d)
 
-        await asyncio.sleep(1.0 / 60.0)
+        # Power efficiency: 60 Hz during active playback or background caching/downloading;
+        # 10 Hz (100ms) when idle or in standby, dropping CPU wakeups by ~83% without impacting responsiveness.
+        sleep_dur = (1.0 / 60.0) if (is_playing or caching_id) else 0.1
+        await asyncio.sleep(sleep_dur)
 
 # --- Network Geolocation & Real-Time Open-Meteo Weather Engine ---
 
@@ -2719,7 +2722,9 @@ async def websocket_telemetry(websocket: WebSocket):
             if key != last_key or t_now - last_sent >= TELEMETRY_HEARTBEAT_S:
                 last_key, last_sent = key, t_now
                 await websocket.send_json(telemetry)
-            await asyncio.sleep(1.0 / 60.0)
+            # Power efficiency: 60 Hz during active playback, 10 Hz when paused/idle
+            sleep_dur = (1.0 / 60.0) if is_playing else 0.1
+            await asyncio.sleep(sleep_dur)
     except (WebSocketDisconnect, Exception):
         pass
 
