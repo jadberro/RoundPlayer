@@ -141,6 +141,35 @@ EOF
 fi
 chown -R "$TARGET_USER:$TARGET_USER" "$LABWC_DIR"
 
+# display & touch orientation (default 180 transform for inverted/speaker enclosure mount)
+KANSHI_DIR="$TARGET_HOME/.config/kanshi"; mkdir -p "$KANSHI_DIR"
+if [ ! -s "$KANSHI_DIR/config" ]; then
+  cat > "$KANSHI_DIR/config" <<'EOF'
+profile {
+    output HDMI-A-1 transform 180
+}
+EOF
+  chown -R "$TARGET_USER:$TARGET_USER" "$KANSHI_DIR"
+fi
+
+cat > "$LABWC_DIR/rc.xml" <<'EOF'
+<?xml version="1.0"?>
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+	<touch deviceName="WaveShare  WaveShare  (USB 1-1.2)" mapToOutput="HDMI-A-1" mouseEmulation="yes"/>
+	<libinput>
+		<device category="touch">
+			<calibrationMatrix>-1 0 1 0 -1 1</calibrationMatrix>
+		</device>
+	</libinput>
+</openbox_config>
+EOF
+chown "$TARGET_USER:$TARGET_USER" "$LABWC_DIR/rc.xml"
+
+cat > /etc/udev/rules.d/99-touchscreen.rules <<'EOF'
+ACTION=="add|change", KERNEL=="event*", ATTRS{idVendor}=="0712", ATTRS{idProduct}=="000a", ENV{LIBINPUT_CALIBRATION_MATRIX}="-1 0 1 0 -1 1"
+EOF
+udevadm control --reload-rules 2>/dev/null || true
+
 # port 80 -> 8080 so http://<host>.local works
 iptables -t nat -C PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || \
 iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080
