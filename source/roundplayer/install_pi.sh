@@ -36,24 +36,24 @@ if [ "$MODE" != "--services-only" ]; then
     python3-pip python3-numpy python3-aubio aubio-tools python3-pil python3-requests \
     ffmpeg alsa-utils pipewire pipewire-pulse pipewire-alsa wireplumber \
     libmpv2 libmpv-dev mpv \
-    git curl unzip rsync ca-certificates avahi-daemon iptables gammastep python3-mutagen \
+    git curl unzip rsync ca-certificates avahi-daemon iptables gammastep python3-mutagen quickjs \
     clang cmake ninja-build pkg-config libgtk-3-dev libepoxy-dev libstdc++-12-dev 2>/dev/null || \
   apt-get install -y -qq \
     python3-pip python3-numpy python3-aubio aubio-tools python3-pil python3-requests \
     ffmpeg alsa-utils pipewire pipewire-pulse pipewire-alsa wireplumber \
     libmpv2 libmpv-dev mpv \
-    git curl unzip rsync ca-certificates avahi-daemon iptables gammastep python3-mutagen \
+    git curl unzip rsync ca-certificates avahi-daemon iptables gammastep python3-mutagen quickjs \
     clang cmake ninja-build pkg-config libgtk-3-dev libepoxy-dev
 
   log "pip packages"
   sudo -u "$TARGET_USER" python3 -m pip install --quiet --break-system-packages --user \
     "fastapi" "uvicorn[standard]" "httpx" "yt-dlp" "ytmusicapi" "pydantic" "qrcode" "gdown" "websockets"
 
-  # Node >= 20 (the cast receiver uses `import ... with { type: 'json' }`)
+  # Node >= 22 (yt-dlp JS challenge solver + cast receiver)
   NODE_MAJOR="$(node -v 2>/dev/null | sed 's/v\([0-9]*\).*/\1/' || echo 0)"
-  if [ "${NODE_MAJOR:-0}" -lt 20 ]; then
-    log "Node.js 20 (NodeSource)"
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  if [ "${NODE_MAJOR:-0}" -lt 22 ]; then
+    log "Node.js 22 (NodeSource)"
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
     apt-get install -y -qq nodejs
   fi
   log "yt-cast-receiver npm deps"
