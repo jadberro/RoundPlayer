@@ -36,13 +36,13 @@ if [ "$MODE" != "--services-only" ]; then
     python3-pip python3-numpy python3-aubio aubio-tools python3-pil python3-requests \
     ffmpeg alsa-utils pipewire pipewire-pulse pipewire-alsa wireplumber \
     libmpv2 libmpv-dev mpv \
-    git curl unzip rsync ca-certificates avahi-daemon iptables gammastep python3-mutagen quickjs \
+    git curl unzip rsync ca-certificates avahi-daemon iptables gammastep python3-mutagen quickjs rtkit \
     clang cmake ninja-build pkg-config libgtk-3-dev libepoxy-dev libstdc++-12-dev 2>/dev/null || \
   apt-get install -y -qq \
     python3-pip python3-numpy python3-aubio aubio-tools python3-pil python3-requests \
     ffmpeg alsa-utils pipewire pipewire-pulse pipewire-alsa wireplumber \
     libmpv2 libmpv-dev mpv \
-    git curl unzip rsync ca-certificates avahi-daemon iptables gammastep python3-mutagen quickjs \
+    git curl unzip rsync ca-certificates avahi-daemon iptables gammastep python3-mutagen quickjs rtkit \
     clang cmake ninja-build pkg-config libgtk-3-dev libepoxy-dev
 
   log "pip packages"
@@ -88,8 +88,23 @@ udevadm control --reload 2>/dev/null || true
 install -m 0755 "$APP_DIR/display-ctl" /usr/local/bin/display-ctl
 # Reference defaults for the DAC Pro path: apodising filter, native-rate S32 output, no auto-mute, DAC does volume
 [ -s /etc/dacpro.json ] || cat > /etc/dacpro.json <<'EOF2'
-{"filter": "ringless", "auto-mute": "off", "pw-hires": "on", "pw-resample-quality": 14, "pw-dither": "none", "pw-keep-awake": "on"}
+{"filter": "ringless", "auto-mute": "off", "pw-hires": "on", "pw-resample-quality": 7, "pw-dither": "none", "pw-keep-awake": "on"}
 EOF2
+
+# Real-time audio scheduling & RTKit limits for PipeWire
+usermod -a -G pipewire,audio "$TARGET_USER" 2>/dev/null || true
+systemctl enable --now rtkit-daemon 2>/dev/null || true
+cat > /etc/security/limits.d/99-audio.conf <<EOF_LIMITS
+@audio    - rtprio  95
+@audio    - nice    -19
+@audio    - memlock unlimited
+@pipewire - rtprio  95
+@pipewire - nice    -19
+@pipewire - memlock unlimited
+$TARGET_USER - rtprio  95
+$TARGET_USER - nice    -19
+$TARGET_USER - memlock unlimited
+EOF_LIMITS
 cat > /etc/sudoers.d/roundplayer <<EOF
 # playback_manager.py drives the DAC and restarts sibling services without a password
 $TARGET_USER ALL=(root) NOPASSWD: /usr/local/bin/dacpro-ctl

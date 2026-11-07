@@ -430,6 +430,7 @@ class _CircularHudScreenState extends State<CircularHudScreen>
     try {
       final p = _player.platform as dynamic;
       p.setProperty('ao', 'pipewire');
+      p.setProperty('pipewire-buffer', '250');
       p.setProperty('audio-samplerate', '0');
       p.setProperty('audio-format', 'no');
       p.setProperty('af', '');
@@ -448,7 +449,7 @@ class _CircularHudScreenState extends State<CircularHudScreen>
       p.setProperty('demuxer-max-back-bytes', '33554432');
       p.setProperty('demuxer-readahead-secs', '20');
       p.setProperty('network-timeout', '15');
-      p.setProperty('audio-buffer', '0.2');
+      p.setProperty('audio-buffer', '0.5');
       p.setProperty('user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
       // NB: the per-frame GL fence leak in libmpv's render backend is handled in the vendored
       // media_kit_video plugin (packages/media_kit_video/linux/video_output.cc), not here.
