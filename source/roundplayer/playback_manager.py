@@ -1011,6 +1011,7 @@ def run_caching_pipeline(video_id: str):
                 'no_warnings': True,
                 'noplaylist': True,
                 'progress_hooks': [progress_hook],
+                'js_runtimes': {'node': {}, 'quickjs': {}},
                 'extractor_args': {
                     'youtube': {
                         'player_client': ['ios', 'android', 'mweb', 'web']

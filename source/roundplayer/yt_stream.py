@@ -49,8 +49,11 @@ def resolve(video_id: str, audio_only: bool = False, force: bool = False) -> Dic
         hit = _cache.get(key)
         if hit and not force and hit["expires"] - time.time() > 600:
             return hit
-    opts = {"quiet": True, "no_warnings": True, "noplaylist": True, "skip_download": True,
-            "format": AUDIO_FMT if audio_only else VIDEO_FMT}
+    opts = {
+        "quiet": True, "no_warnings": True, "noplaylist": True, "skip_download": True,
+        "format": AUDIO_FMT if audio_only else VIDEO_FMT,
+        "js_runtimes": {"node": {}, "quickjs": {}},
+    }
     t0 = time.time()
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)

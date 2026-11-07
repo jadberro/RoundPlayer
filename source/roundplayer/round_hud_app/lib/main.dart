@@ -441,6 +441,15 @@ class _CircularHudScreenState extends State<CircularHudScreen>
       // '-copy' keeps frames in system memory so media_kit's GL texture path works.
       p.setProperty('hwdec', 'v4l2m2m-copy');
       p.setProperty('vd-lavc-threads', '4');
+
+      // Network & stream buffering: 64MB cache, 20s readahead, 200ms audio buffer to prevent stuttering/underruns
+      p.setProperty('cache', 'yes');
+      p.setProperty('demuxer-max-bytes', '67108864');
+      p.setProperty('demuxer-max-back-bytes', '33554432');
+      p.setProperty('demuxer-readahead-secs', '20');
+      p.setProperty('network-timeout', '15');
+      p.setProperty('audio-buffer', '0.2');
+      p.setProperty('user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
       // NB: the per-frame GL fence leak in libmpv's render backend is handled in the vendored
       // media_kit_video plugin (packages/media_kit_video/linux/video_output.cc), not here.
     } catch (e) {
